@@ -1,11 +1,10 @@
-# KerBudget 2.1 Test
+# KerBudget 2.2 Test
 
-Version de test avec nouveau tableau de bord.
+Nouveautés :
+- Type explicite pour chaque mouvement.
+- Comptes `Compte courant` et `Livret A`.
+- Un virement vers le Livret A pointé diminue le compte courant et augmente l'épargne.
+- Dépointage, modification ou suppression : recalcul automatique.
+- Migration automatique des mouvements existants de la version Test.
 
-- Factures non pointées mises en avant.
-- Solde pointé réellement disponible.
-- Reste du budget par jour.
-- Objectif annuel d’épargne.
-- Stockage de test séparé de la version Stable.
-
-Ne pas installer cette archive sur le dépôt KerBudget-2 Stable avant validation.
+Déployer ces fichiers dans le dépôt `KerBudget-Test`.
