@@ -1,5 +1,5 @@
 {
-  "name": "KerBudget 2.2 Test",
+  "name": "KerBudget 2.2.2 Test",
   "short_name": "KerBudget Test",
   "start_url": "./",
   "display": "standalone",
@@ -13,6 +13,6 @@
       "purpose": "any maskable"
     }
   ],
-  "description": "Version test avec types de mouvements et transferts vers Livret A",
+  "description": "Budget avec sauvegarde protégée",
   "scope": "./"
 }
