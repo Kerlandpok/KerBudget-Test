@@ -1,10 +1,8 @@
-# KerBudget 2.2 Test
+# KerBudget 2.2.1 Test
 
-Nouveautés :
-- Type explicite pour chaque mouvement.
-- Comptes `Compte courant` et `Livret A`.
-- Un virement vers le Livret A pointé diminue le compte courant et augmente l'épargne.
-- Dépointage, modification ou suppression : recalcul automatique.
-- Migration automatique des mouvements existants de la version Test.
+Correction du moteur comptable manquant.
 
-Déployer ces fichiers dans le dépôt `KerBudget-Test`.
+- Un virement pointé vers le Livret A diminue le compte courant.
+- Le même virement augmente le solde du Livret A.
+- Il ne compte ni comme facture ni comme dépense réelle.
+- Le dépointage, la modification ou la suppression recalculent automatiquement les deux soldes.
