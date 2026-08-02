@@ -1,3 +1,11 @@
-# KerBudget 2.6 Test
+# KerBudget 2.7 Test
 
-Bilan mensuel dynamique, comparaison avec le mois précédent, mois budgétaire séparé de la date réelle et statut Provisoire / À jour.
+Nouveauté principale : calendrier financier mensuel.
+
+Il regroupe :
+- revenus ;
+- factures ;
+- virements vers l’épargne ;
+- échéances récurrentes à venir ;
+- statut pointé / non pointé ;
+- raccourci direct depuis l’accueil et Outils.
