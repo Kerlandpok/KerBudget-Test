@@ -1,11 +1,12 @@
-# KerBudget 2.7 Test
+# KerBudget 2.7 Test — Prévision de trésorerie
 
-Nouveauté principale : calendrier financier mensuel.
+Le calendrier répétitif a été remplacé par une vraie prévision :
 
-Il regroupe :
-- revenus ;
-- factures ;
-- virements vers l’épargne ;
-- échéances récurrentes à venir ;
-- statut pointé / non pointé ;
-- raccourci direct depuis l’accueil et Outils.
+- solde actuel pointé ;
+- solde après chaque opération future/non pointée ;
+- échéances récurrentes pas encore générées ;
+- solde minimum prévu ;
+- fin de mois prévisionnelle ;
+- prochaine rentrée d'argent ;
+- plus grosse sortie ;
+- alertes de découvert ou de solde faible.

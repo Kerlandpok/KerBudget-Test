@@ -55,7 +55,7 @@ function unpointedMovements(i){return mtx(i).filter(t=>!t.pointed)}
 function monthSavings(i){return savingsTransfers(i,true).reduce((s,t)=>s+(Number(t.amount)||0),0)}
 function savingsGoal(){const r=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]).find(x=>x&&String(x[1]||'').toLowerCase()==='total');return Number(r?.[2]||0)}
 function dashboardStatus(i){const p=billsPending(i).length,b=balance(i,false);if(b<0)return{tone:'danger',icon:'🔴',text:'Attention, le solde prévisionnel est négatif.'};if(p>0)return{tone:'warning',icon:'🟠',text:`Il reste ${p} facture${p>1?'s':''} à pointer.`};return{tone:'success',icon:'🟢',text:'Tout est à jour.'}}
-function home(){const t=totals(month),p=planned(month),current=balance(month,true),projected=balance(month,false),savings=savingsBalance(),savedThisMonth=monthSavings(month),pendingBills=billsPending(month),pendingAll=unpointedMovements(month),days=daysLeftInMonth(month),remaining=Math.max(0,p.expense-t.expense),daily=remaining/days,goal=savingsGoal(),progress=goal>0?Math.min(100,Math.max(0,savings/goal*100)):0,status=dashboardStatus(month);let cat={};for(const x of mtx(month).filter(x=>isExpenseType(x)&&x.pointed))cat[x.category]=(cat[x.category]||0)+x.amount;const cats=Object.entries(cat).sort((a,b)=>b[1]-a[1]).slice(0,5);return layout(`${monthbar()}<section class="status-banner ${status.tone}"><span>${status.icon}</span><strong>${status.text}</strong></section><div class="dashboard-grid"><section class="dash-card primary"><div class="dash-label">💳 Compte courant</div><div class="dash-value">${euro(current)}</div><div class="dash-sub">Prévision fin de mois : <b class="${projected>=0?'positive':'negative'}">${euro(projected)}</b></div></section><section class="dash-card"><div class="dash-label">🏦 Livret A</div><div class="dash-value">${euro(savings)}</div><div class="dash-sub">Épargné ce mois : <b>${euro(savedThisMonth)}</b></div></section><section class="dash-card"><div class="dash-label">💶 Disponible ce mois</div><div class="dash-value">${euro(remaining)}</div><div class="dash-sub">${euro(daily)} par jour sur ${days} jour${days>1?'s':''}</div></section><section class="dash-card"><div class="dash-label">📅 À faire</div><div class="dash-value">${pendingAll.length}</div><div class="dash-sub">${pendingBills.length} facture${pendingBills.length>1?'s':''} à pointer</div></section></div>${pendingAll.length?`<div class="section-title"><h2>À pointer</h2><button class="btn secondary" data-go="transactions">Tout voir</button></div>${txList(pendingAll.slice(0,5))}`:''}<div class="section-title"><h2>Calendrier financier</h2><button class="btn secondary" data-go="calendar">Voir le mois</button></div><div class="section-title"><h2>Ce mois-ci</h2></div><div class="summary-grid"><div class="summary-tile"><span>Revenus</span><b class="positive">${euro(t.income)}</b></div><div class="summary-tile"><span>Dépenses</span><b class="negative">${euro(t.expense)}</b></div><div class="summary-tile"><span>Épargne</span><b>${euro(savedThisMonth)}</b></div><div class="summary-tile"><span>Budget prévu</span><b>${euro(p.expense)}</b></div></div><div class="section-title"><h2>Objectif d’épargne</h2><button class="btn secondary" data-go="savings">Détails</button></div><section class="goal-card"><div class="goal-top"><span>${euro(savings)} sur ${euro(goal)}</span><b>${progress.toFixed(0)} %</b></div><div class="progress large"><i style="width:${progress}%"></i></div><div class="dash-sub">Reste à épargner : ${euro(Math.max(0,goal-savings))}</div></section><div class="section-title"><h2>Dépenses principales</h2><button class="btn secondary" data-go="budget">Budget</button></div><div class="list">${cats.length?cats.map(([c,v])=>`<div class="row"><div><div class="title">${esc(c)}</div><div class="progress"><i style="width:${Math.min(100,v/(t.expense||1)*100)}%"></i></div></div><div class="amount">${euro(v)}</div></div>`).join(''):'<div class="empty">Aucune dépense pointée.</div>'}</div><div class="section-title"><h2>Derniers mouvements</h2><button class="btn secondary" data-go="transactions">Tout voir</button></div>${txList(mtx(month).slice(-6).reverse())}<button class="fab" data-add>+</button>`) }
+function home(){const t=totals(month),p=planned(month),current=balance(month,true),projected=balance(month,false),savings=savingsBalance(),savedThisMonth=monthSavings(month),pendingBills=billsPending(month),pendingAll=unpointedMovements(month),days=daysLeftInMonth(month),remaining=Math.max(0,p.expense-t.expense),daily=remaining/days,goal=savingsGoal(),progress=goal>0?Math.min(100,Math.max(0,savings/goal*100)):0,status=dashboardStatus(month);let cat={};for(const x of mtx(month).filter(x=>isExpenseType(x)&&x.pointed))cat[x.category]=(cat[x.category]||0)+x.amount;const cats=Object.entries(cat).sort((a,b)=>b[1]-a[1]).slice(0,5);return layout(`${monthbar()}<section class="status-banner ${status.tone}"><span>${status.icon}</span><strong>${status.text}</strong></section><div class="dashboard-grid"><section class="dash-card primary"><div class="dash-label">💳 Compte courant</div><div class="dash-value">${euro(current)}</div><div class="dash-sub">Prévision fin de mois : <b class="${projected>=0?'positive':'negative'}">${euro(projected)}</b></div></section><section class="dash-card"><div class="dash-label">🏦 Livret A</div><div class="dash-value">${euro(savings)}</div><div class="dash-sub">Épargné ce mois : <b>${euro(savedThisMonth)}</b></div></section><section class="dash-card"><div class="dash-label">💶 Disponible ce mois</div><div class="dash-value">${euro(remaining)}</div><div class="dash-sub">${euro(daily)} par jour sur ${days} jour${days>1?'s':''}</div></section><section class="dash-card"><div class="dash-label">📅 À faire</div><div class="dash-value">${pendingAll.length}</div><div class="dash-sub">${pendingBills.length} facture${pendingBills.length>1?'s':''} à pointer</div></section></div>${pendingAll.length?`<div class="section-title"><h2>À pointer</h2><button class="btn secondary" data-go="transactions">Tout voir</button></div>${txList(pendingAll.slice(0,5))}`:''}<div class="section-title"><h2>Prévision de trésorerie</h2><button class="btn secondary" data-go="forecast">Voir la prévision</button></div><div class="section-title"><h2>Ce mois-ci</h2></div><div class="summary-grid"><div class="summary-tile"><span>Revenus</span><b class="positive">${euro(t.income)}</b></div><div class="summary-tile"><span>Dépenses</span><b class="negative">${euro(t.expense)}</b></div><div class="summary-tile"><span>Épargne</span><b>${euro(savedThisMonth)}</b></div><div class="summary-tile"><span>Budget prévu</span><b>${euro(p.expense)}</b></div></div><div class="section-title"><h2>Objectif d’épargne</h2><button class="btn secondary" data-go="savings">Détails</button></div><section class="goal-card"><div class="goal-top"><span>${euro(savings)} sur ${euro(goal)}</span><b>${progress.toFixed(0)} %</b></div><div class="progress large"><i style="width:${progress}%"></i></div><div class="dash-sub">Reste à épargner : ${euro(Math.max(0,goal-savings))}</div></section><div class="section-title"><h2>Dépenses principales</h2><button class="btn secondary" data-go="budget">Budget</button></div><div class="list">${cats.length?cats.map(([c,v])=>`<div class="row"><div><div class="title">${esc(c)}</div><div class="progress"><i style="width:${Math.min(100,v/(t.expense||1)*100)}%"></i></div></div><div class="amount">${euro(v)}</div></div>`).join(''):'<div class="empty">Aucune dépense pointée.</div>'}</div><div class="section-title"><h2>Derniers mouvements</h2><button class="btn secondary" data-go="transactions">Tout voir</button></div>${txList(mtx(month).slice(-6).reverse())}<button class="fab" data-add>+</button>`) }
 function txList(list){return `<div class="list">${list.length?list.map(t=>{normalizeMovement(t);const positive=isIncomeType(t);const flow=t.fromAccount&&t.toAccount?` · ${accountLabel(t.fromAccount)} → ${accountLabel(t.toAccount)}`:'';return `<div class="row" data-edit="${esc(t.id)}"><div><div class="title">${t.pointed?'✓ ':''}${esc(t.description||t.subcategory||'Mouvement')}</div><div class="sub">${t.day?String(t.day).padStart(2,'0')+'/':''}${String(t.month+1).padStart(2,'0')}/2026 · ${esc(typeLabel(t.type))}${flow}${t.subcategory?' · '+esc(t.subcategory):''}</div></div><div class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(t.amount))}</div></div>`}).join(''):'<div class="empty">Aucun mouvement.</div>'}</div>`}
 function txGroups(list){
   const billCats=new Set(['Habitation','Télécommunications','Assurances','Banque','Impots']);
@@ -211,72 +211,92 @@ function monthReport(i){const t=totals(i),p=planned(i),pending=mtx(i).filter(x=>
 function diffBadge(d,invert=false){if(!d)return'<span class="trend neutral">Premier mois</span>';const good=invert?d.value<=0:d.value>=0;return`<span class="trend ${good?'good':'bad'}">${d.value>=0?'+':''}${euro(d.value)} · ${d.pct>=0?'+':''}${d.pct.toFixed(0)} %</span>`}
 function monthlyReport(){const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour';return layout(`${monthbar()}<div class="section-title"><h2>Bilan • ${state.months[month].month}</h2><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div><div class="report-grid"><section class="report-card"><span>Revenus</span><strong class="positive">${euro(r.t.income)}</strong>${diffBadge(r.incomeDiff)}</section><section class="report-card"><span>Dépenses réelles</span><strong class="negative">${euro(r.t.expense)}</strong>${diffBadge(r.expenseDiff,true)}</section><section class="report-card"><span>Épargne</span><strong>${euro(r.savings)}</strong><small>Virements pointés</small></section><section class="report-card highlight"><span>Résultat du mois</span><strong class="${r.result>=0?'positive':'negative'}">${euro(r.result)}</strong><small>Revenus − dépenses − épargne</small></section></div><div class="section-title"><h2>Situation du mois</h2></div><section class="report-summary"><div><span>Budget prévu</span><b>${euro(r.p.expense)}</b></div><div><span>Dépenses pointées</span><b>${euro(r.t.pexpense)}</b></div><div><span>Reste sur budget</span><b>${euro(r.p.expense-r.t.expense)}</b></div><div><span>Opérations non pointées</span><b>${r.pending.length}</b></div></section>${r.pending.length?`<div class="section-title"><h2>Encore à pointer</h2><button class="btn secondary" data-go="transactions">Voir</button></div>${txList(r.pending.slice(0,6))}`:''}<div class="section-title"><h2>Dépenses par catégorie</h2></div><div class="list">${r.top.length?r.top.map(([c,v])=>`<div class="row"><div><div class="title">${esc(c)}</div><div class="progress"><i style="width:${Math.min(100,v/(r.t.expense||1)*100)}%"></i></div></div><div class="amount">${euro(v)}</div></div>`).join(''):'<div class="empty">Aucune dépense pointée.</div>'}</div>`)}
 
-function calendarEvents(i){
+function forecastEvents(i){
   const events=[];
-  for(const t of mtx(i)){
-    const day=Math.min(31,Math.max(1,Number(t.day)||1));
+  for(const t of mtx(i).filter(t=>!t.pointed)){
+    normalizeMovement(t);
     const type=inferMovementType(t);
-    let kind='expense',icon='🛒';
-    if(isIncomeType(t)){kind='income';icon='🟢'}
-    else if(type==='bill'){kind='bill';icon='🔴'}
-    else if(type==='savings_transfer'){kind='savings';icon='🔵'}
+    const isIncome=isIncomeType(t);
     events.push({
-      id:t.id,day,kind,icon,
+      id:t.id,
+      day:Math.min(31,Math.max(1,Number(t.day)||1)),
       title:t.description||t.subcategory||typeLabel(type)||'Mouvement',
-      amount:Number(t.amount)||0,
-      pointed:!!t.pointed,
+      amount:isIncome?Math.abs(Number(t.amount)||0):-Math.abs(Number(t.amount)||0),
+      kind:isIncome?'income':(type==='savings_transfer'?'savings':type==='bill'?'bill':'expense'),
       source:'movement'
     });
   }
   for(const r of state.recurringBills||[]){
     if(!recurringDue(r,i))continue;
     const key=recurringKey(r,i);
-    if(events.some(e=>e.source==='movement'&&state.transactions.find(t=>t.id===e.id)?.recurringKey===key))continue;
+    if(state.transactions.some(t=>t.recurringKey===key))continue;
     events.push({
-      id:'due-'+key,day:Math.min(31,Math.max(1,Number(r.day)||1)),
-      kind:'planned',icon:'🟡',title:r.name,amount:Number(r.amount)||0,
-      pointed:false,source:'recurring'
+      id:'planned-'+key,
+      day:Math.min(31,Math.max(1,Number(r.day)||1)),
+      title:r.name,
+      amount:-Math.abs(Number(r.amount)||0),
+      kind:'planned',
+      source:'recurring'
     });
   }
   return events.sort((a,b)=>a.day-b.day||a.title.localeCompare(b.title,'fr'));
 }
-function financialCalendar(){
-  const events=calendarEvents(month);
-  const grouped={};
-  for(const e of events)(grouped[e.day]??=[]).push(e);
-  const days=Object.keys(grouped).map(Number).sort((a,b)=>a-b);
-  const totals={
-    income:events.filter(e=>e.kind==='income').reduce((s,e)=>s+e.amount,0),
-    bills:events.filter(e=>['bill','planned'].includes(e.kind)).reduce((s,e)=>s+e.amount,0),
-    savings:events.filter(e=>e.kind==='savings').reduce((s,e)=>s+e.amount,0)
-  };
+function forecastData(i){
+  const opening=balance(i,true);
+  const events=forecastEvents(i);
+  let running=opening,min=opening;
+  const rows=events.map(e=>{
+    running+=e.amount;
+    min=Math.min(min,running);
+    return {...e,balanceAfter:running};
+  });
+  const nextIncome=rows.find(e=>e.amount>0)||null;
+  const largestExpense=rows.filter(e=>e.amount<0).sort((a,b)=>a.amount-b.amount)[0]||null;
+  return {opening,rows,min,ending:running,nextIncome,largestExpense};
+}
+function cashForecast(){
+  const f=forecastData(month);
+  const alert=f.min<0
+    ?{tone:'danger',icon:'🔴',text:`Découvert prévisionnel : ${euro(f.min)}`}
+    :f.min<200
+      ?{tone:'warning',icon:'🟠',text:`Solde minimum faible : ${euro(f.min)}`}
+      :{tone:'success',icon:'🟢',text:'Aucune période de découvert prévue.'};
   return layout(`${monthbar()}
-    <div class="section-title"><h2>Calendrier financier • ${state.months[month].month}</h2></div>
-    <div class="calendar-summary">
-      <div><span>Revenus</span><b class="positive">${euro(totals.income)}</b></div>
-      <div><span>Factures</span><b class="negative">${euro(totals.bills)}</b></div>
-      <div><span>Épargne</span><b>${euro(totals.savings)}</b></div>
+    <div class="section-title"><h2>Prévision de trésorerie • ${state.months[month].month}</h2></div>
+    <section class="forecast-alert ${alert.tone}"><span>${alert.icon}</span><strong>${alert.text}</strong></section>
+
+    <div class="forecast-cards">
+      <div><span>Solde actuel pointé</span><b>${euro(f.opening)}</b></div>
+      <div><span>Solde minimum prévu</span><b class="${f.min>=0?'positive':'negative'}">${euro(f.min)}</b></div>
+      <div><span>Fin de mois prévue</span><b class="${f.ending>=0?'positive':'negative'}">${euro(f.ending)}</b></div>
+      <div><span>Opérations à venir</span><b>${f.rows.length}</b></div>
     </div>
-    <div class="calendar-legend">
-      <span>🟢 Revenus</span><span>🔴 Factures</span><span>🔵 Épargne</span><span>🟡 À venir</span>
+
+    <div class="forecast-highlights">
+      <div><span>Prochaine rentrée</span><b>${f.nextIncome?`${esc(f.nextIncome.title)} · ${euro(f.nextIncome.amount)}`:'Aucune'}</b></div>
+      <div><span>Plus grosse sortie</span><b>${f.largestExpense?`${esc(f.largestExpense.title)} · ${euro(Math.abs(f.largestExpense.amount))}`:'Aucune'}</b></div>
     </div>
-    <div class="timeline">
-      ${days.length?days.map(day=>`
-        <section class="timeline-day">
-          <div class="timeline-date"><b>${String(day).padStart(2,'0')}</b><span>${state.months[month].month.slice(0,3)}</span></div>
-          <div class="timeline-events">
-            ${grouped[day].map(e=>`
-              <div class="timeline-event ${e.kind} ${e.pointed?'pointed':''}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
-                <div><span class="timeline-icon">${e.icon}</span><strong>${esc(e.title)}</strong><small>${e.pointed?'Pointé':'À venir / non pointé'}</small></div>
-                <b class="${e.kind==='income'?'positive':'negative'}">${e.kind==='income'?'+':'−'}${euro(Math.abs(e.amount))}</b>
-              </div>`).join('')}
+
+    <div class="section-title"><h2>Évolution prévue</h2></div>
+    <div class="forecast-timeline">
+      <div class="forecast-start"><span>Aujourd’hui</span><b>${euro(f.opening)}</b></div>
+      ${f.rows.length?f.rows.map(e=>`
+        <div class="forecast-row ${e.kind}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
+          <div class="forecast-date">${String(e.day).padStart(2,'0')}</div>
+          <div class="forecast-main">
+            <strong>${esc(e.title)}</strong>
+            <small>${e.source==='recurring'?'Échéance récurrente non générée':'Mouvement non pointé'}</small>
           </div>
-        </section>`).join(''):'<div class="empty">Aucun événement financier pour ce mois.</div>'}
+          <div class="forecast-values">
+            <b class="${e.amount>=0?'positive':'negative'}">${e.amount>=0?'+':'−'}${euro(Math.abs(e.amount))}</b>
+            <small>Solde : ${euro(e.balanceAfter)}</small>
+          </div>
+        </div>`).join(''):'<div class="empty">Aucune opération à venir pour ce mois.</div>'}
     </div>
   `);
 }
-function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 2.5 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📆 Calendrier financier</h3><p>Voir les revenus, factures, virements d’épargne et échéances du mois.</p><button class="btn" data-go="calendar">Ouvrir le calendrier</button></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Comparer revenus, dépenses, épargne et opérations en attente.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='calendar'?financialCalendar():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 2.5 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📈 Prévision de trésorerie</h3><p>Voir l’évolution du solde après chaque opération à venir.</p><button class="btn" data-go="forecast">Ouvrir la prévision</button></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Comparer revenus, dépenses, épargne et opérations en attente.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
+function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='forecast'?cashForecast():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='home';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{let s=q.value.toLowerCase(),l=mtx(month).filter(t=>(t.description+' '+t.category+' '+t.subcategory).toLowerCase().includes(s));document.querySelector('#txarea').innerHTML=txGroups(l);document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit))};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};

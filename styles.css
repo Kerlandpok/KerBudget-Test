@@ -45,22 +45,29 @@
 .recurring-row{cursor:pointer}
 .recurring-row .title{font-weight:800}
 .report-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.report-card{background:#fff;border:1px solid rgba(23,50,77,.1);border-radius:18px;padding:15px;display:grid;gap:7px}.report-card span{font-size:.8rem;color:#6d7982;font-weight:700}.report-card strong{font-size:1.3rem}.report-card.highlight{background:#f2f7f8}.report-status{border-radius:999px;padding:6px 10px;font-size:.78rem;font-weight:800}.report-status.provisional{background:#fff2dc;color:#8a5a00}.report-status.ready{background:#eaf7ef;color:#27613b}.report-summary{background:#fff;border-radius:18px;border:1px solid rgba(23,50,77,.1);padding:6px 15px}.report-summary>div{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid #edf1f3}.trend{font-size:.72rem;font-weight:800;border-radius:999px;padding:4px 7px;width:max-content}.trend.good{background:#eaf7ef;color:#27613b}.trend.bad{background:#fdeaea;color:#9b2f2f}.trend.neutral{background:#eef2f4;color:#66737c}@media(max-width:420px){.report-grid{grid-template-columns:1fr}}
-.calendar-summary{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-bottom:12px}
-.calendar-summary>div{background:#fff;border:1px solid rgba(23,50,77,.09);border-radius:15px;padding:12px}
-.calendar-summary span{display:block;font-size:.76rem;color:#6d7982;margin-bottom:5px}
-.calendar-legend{display:flex;gap:9px;flex-wrap:wrap;font-size:.75rem;color:#65727c;margin:10px 0 16px}
-.timeline{display:grid;gap:13px}
-.timeline-day{display:grid;grid-template-columns:58px 1fr;gap:10px}
-.timeline-date{background:#17324d;color:#fff;border-radius:14px;padding:10px 6px;text-align:center;height:max-content}
-.timeline-date b{display:block;font-size:1.2rem}.timeline-date span{font-size:.72rem;text-transform:uppercase}
-.timeline-events{display:grid;gap:8px}
-.timeline-event{background:#fff;border:1px solid rgba(23,50,77,.09);border-radius:14px;padding:11px 12px;display:flex;align-items:center;justify-content:space-between;gap:12px;cursor:pointer}
-.timeline-event>div{display:grid;grid-template-columns:auto 1fr;column-gap:8px;align-items:center}
-.timeline-event strong{font-size:.92rem}.timeline-event small{grid-column:2;color:#76828a;font-size:.72rem;margin-top:2px}
-.timeline-icon{grid-row:1/3}
-.timeline-event.pointed{opacity:.72}
-.timeline-event.income{border-left:4px solid #5ea879}
-.timeline-event.bill,.timeline-event.planned{border-left:4px solid #c97373}
-.timeline-event.savings{border-left:4px solid #5d8fb5}
-.timeline-event.expense{border-left:4px solid #a4adb4}
-@media(max-width:420px){.calendar-summary{grid-template-columns:1fr}.timeline-day{grid-template-columns:48px 1fr}}
+.forecast-alert{display:flex;align-items:center;gap:10px;border-radius:16px;padding:13px 15px;margin:10px 0 15px}
+.forecast-alert.success{background:#eaf7ef;color:#27613b}
+.forecast-alert.warning{background:#fff4df;color:#8a5a00}
+.forecast-alert.danger{background:#fdeaea;color:#9b2f2f}
+.forecast-cards{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.forecast-cards>div,.forecast-highlights>div{background:#fff;border:1px solid rgba(23,50,77,.09);border-radius:15px;padding:13px}
+.forecast-cards span,.forecast-highlights span{display:block;color:#6d7982;font-size:.75rem;margin-bottom:5px}
+.forecast-cards b{font-size:1.12rem}
+.forecast-highlights{display:grid;gap:10px;margin-top:10px}
+.forecast-highlights b{font-size:.9rem}
+.forecast-timeline{display:grid;gap:9px}
+.forecast-start{display:flex;justify-content:space-between;background:#17324d;color:#fff;border-radius:14px;padding:12px 14px}
+.forecast-row{display:grid;grid-template-columns:44px 1fr auto;gap:10px;align-items:center;background:#fff;border-radius:14px;padding:11px 12px;border:1px solid rgba(23,50,77,.09);cursor:pointer}
+.forecast-row.income{border-left:4px solid #5ea879}
+.forecast-row.bill,.forecast-row.planned{border-left:4px solid #c97373}
+.forecast-row.savings{border-left:4px solid #5d8fb5}
+.forecast-row.expense{border-left:4px solid #a4adb4}
+.forecast-date{font-weight:800;font-size:1.05rem;text-align:center}
+.forecast-main{display:grid;gap:2px}
+.forecast-main small,.forecast-values small{color:#75818a;font-size:.7rem}
+.forecast-values{text-align:right;display:grid;gap:3px}
+@media(max-width:420px){
+  .forecast-cards{grid-template-columns:1fr 1fr}
+  .forecast-row{grid-template-columns:38px 1fr}
+  .forecast-values{grid-column:2;text-align:left}
+}

@@ -1,5 +1,5 @@
-const CACHE='kerbudget-2-7-test-20260802';
-const ASSETS=['./','./index.html','./styles.css?v=270','./app.js?v=270','./data.js?v=270','./excel-extra.js?v=270','./manifest.json','./icon.svg'];
+const CACHE='kerbudget-2-7-forecast-test-20260802';
+const ASSETS=['./','./index.html','./styles.css?v=271','./app.js?v=271','./data.js?v=271','./excel-extra.js?v=271','./manifest.json','./icon.svg'];
 self.addEventListener('install',e=>{self.skipWaiting();e.waitUntil(caches.open(CACHE).then(c=>c.addAll(ASSETS)))});
 self.addEventListener('activate',e=>{e.waitUntil(caches.keys().then(k=>Promise.all(k.filter(x=>x!==CACHE).map(x=>caches.delete(x)))).then(()=>self.clients.claim()))});
 self.addEventListener('fetch',e=>{if(e.request.method!=='GET')return;e.respondWith(fetch(e.request,{cache:'no-store'}).then(r=>{let x=r.clone();caches.open(CACHE).then(c=>c.put(e.request,x));return r}).catch(()=>caches.match(e.request)))});
