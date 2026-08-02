@@ -1,12 +1,12 @@
-# KerBudget 2.7 Test — Prévision de trésorerie
+# KerBudget 2.8 Test
 
-Le calendrier répétitif a été remplacé par une vraie prévision :
+La page Prévision séparée a été supprimée.
 
-- solde actuel pointé ;
-- solde après chaque opération future/non pointée ;
-- échéances récurrentes pas encore générées ;
+La page Mouvements regroupe désormais :
+- solde pointé ;
+- fin de mois prévue ;
 - solde minimum prévu ;
-- fin de mois prévisionnelle ;
-- prochaine rentrée d'argent ;
-- plus grosse sortie ;
-- alertes de découvert ou de solde faible.
+- opérations à pointer ;
+- échéances récurrentes à venir ;
+- opérations pointées ;
+- modification et pointage depuis un seul écran.

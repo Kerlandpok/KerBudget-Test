@@ -71,3 +71,18 @@
   .forecast-row{grid-template-columns:38px 1fr}
   .forecast-values{grid-column:2;text-align:left}
 }
+
+.movement-overview{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin-bottom:14px}
+.movement-overview>div{background:#fff;border:1px solid rgba(23,50,77,.09);border-radius:15px;padding:12px}
+.movement-overview span{display:block;font-size:.74rem;color:#6d7982;margin-bottom:5px}
+.movement-overview b{font-size:1.08rem}
+.unified-section{margin-bottom:18px;border-radius:17px;overflow:hidden;border:1px solid rgba(23,50,77,.1);background:#fff}
+.unified-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px}
+.unified-head h3{margin:0;font-size:1rem}
+.unified-head small{color:#74808a}
+.unified-section.pending .unified-head{background:#fff4df}
+.unified-section.upcoming .unified-head{background:#eef4fa}
+.unified-section.pointed .unified-head{background:#eaf7ef}
+.unified-section>.list{margin:0;border-radius:0}
+.future-row{cursor:default}
+@media(max-width:420px){.movement-overview{grid-template-columns:1fr 1fr}}
