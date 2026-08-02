@@ -40,3 +40,7 @@
 #modal .sheet{max-height:88vh;overflow:auto}
 
 .status-banner{display:flex;align-items:center;gap:10px;border-radius:16px;padding:13px 15px;margin:12px 0 16px}.status-banner.success{background:#eaf7ef;color:#27613b}.status-banner.warning{background:#fff4df;color:#8a5a00}.status-banner.danger{background:#fdeaea;color:#9b2f2f}.dashboard-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;margin-bottom:18px}.dash-card{background:#fff;border:1px solid rgba(23,50,77,.10);border-radius:18px;padding:15px;box-shadow:0 8px 24px rgba(23,50,77,.05)}.dash-card.primary{background:linear-gradient(135deg,#17324d,#2f6f73);color:#fff}.dash-label{font-size:.82rem;font-weight:800;opacity:.86}.dash-value{font-size:1.55rem;font-weight:800;margin:7px 0}.dash-sub{font-size:.78rem;color:#6c7881;line-height:1.35}.dash-card.primary .dash-sub{color:rgba(255,255,255,.82)}.summary-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.summary-tile{background:#fff;border-radius:15px;padding:13px;border:1px solid rgba(23,50,77,.08)}.summary-tile span{display:block;font-size:.78rem;color:#6d7982;margin-bottom:5px}.goal-card{background:#fff;border-radius:18px;padding:16px;border:1px solid rgba(23,50,77,.10)}.goal-top{display:flex;justify-content:space-between;margin-bottom:10px}.progress.large{height:11px}@media(max-width:420px){.dashboard-grid{grid-template-columns:1fr}}
+
+.recurring-actions{display:flex;justify-content:flex-end;margin:0 0 12px}
+.recurring-row{cursor:pointer}
+.recurring-row .title{font-weight:800}

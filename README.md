@@ -1,3 +1,3 @@
-# KerBudget 2.4 Test
+# KerBudget 2.5 Test
 
-Nouveau tableau de bord moderne avec comptes, disponible, factures à pointer, résumé mensuel et objectif d'épargne.
+Module complet de factures récurrentes : ajout, modification, suspension, suppression, fréquences mensuelle/trimestrielle/annuelle, génération automatique et protection contre les doublons.
