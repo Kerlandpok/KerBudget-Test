@@ -1,3 +1,3 @@
-# KerBudget 2.5 Test
+# KerBudget 2.6 Test
 
-Module complet de factures récurrentes : ajout, modification, suspension, suppression, fréquences mensuelle/trimestrielle/annuelle, génération automatique et protection contre les doublons.
+Bilan mensuel dynamique, comparaison avec le mois précédent, mois budgétaire séparé de la date réelle et statut Provisoire / À jour.
