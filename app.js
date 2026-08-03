@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.3-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.4-test', MAX_BACKUPS=12;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -153,21 +153,27 @@ function budget(){
   const used=p.expense>0?Math.max(0,expenseActual/p.expense*100):0;
   const groupActual=(name,isIncome)=>tx.filter(x=>isIncome?x.category.trim()==='Revenus':x.category.trim()===name.trim()).reduce((a,b)=>a+(Number(b.amount)||0),0);
   const cards=`<section class="budget-overview">
-    <div class="budget-kpi primary"><span>Budget dépenses</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
-    <div class="budget-kpi"><span>Dépenses réelles</span><strong class="negative">${euro(expenseActual)}</strong><small>Opérations du mois</small></div>
-    <div class="budget-kpi"><span>Reste disponible</span><strong class="${expenseRemaining>=0?'positive':'negative'}">${euro(expenseRemaining)}</strong><small>Prévu − réel</small></div>
-    <div class="budget-kpi"><span>Revenus réels</span><strong class="positive">${euro(incomeActual)}</strong><small>${incomeGap>=0?'Avance':'Manque'} de ${euro(Math.abs(incomeGap))}</small></div>
+    <div class="budget-kpi primary"><span>Budget prévu</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
+    <div class="budget-kpi"><span>Dépensé</span><strong class="negative">${euro(expenseActual)}</strong><small>Dépenses réelles du mois</small></div>
+    <div class="budget-kpi"><span>Disponible</span><strong class="${expenseRemaining>=0?'positive':'negative'}">${euro(expenseRemaining)}</strong><small>${expenseRemaining>=0?'Encore disponible':'Budget dépassé'}</small></div>
+    <div class="budget-kpi"><span>Écart revenus</span><strong class="${incomeGap>=0?'positive':'negative'}">${incomeGap>=0?'+':'−'} ${euro(Math.abs(incomeGap))}</strong><small>${euro(incomeActual)} reçu sur ${euro(p.income)} prévu</small></div>
   </section>`;
-  const body=Object.entries(groups).map(([name,items])=>{
-    const isIncome=name==='Revenus', plannedTotal=items.reduce((s,x)=>s+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), diff=isIncome?actual-plannedTotal:plannedTotal-actual;
+  const prepared=Object.entries(groups).map(([name,items])=>{
+    const isIncome=name==='Revenus', plannedTotal=items.reduce((sum,x)=>sum+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), diff=isIncome?actual-plannedTotal:plannedTotal-actual;
     const pct=plannedTotal>0?Math.max(0,actual/plannedTotal*100):0;
-    return `<section class="budget-group ${isIncome?'income-group':''}">
-      <div class="budget-group-head"><div><h3>${esc(name)}</h3><small>${items.length} poste${items.length>1?'s':''}</small></div><div class="budget-group-totals"><span>Prévu <b>${euro(plannedTotal)}</b></span><span>Réel <b>${euro(actual)}</b></span></div></div>
-      <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div><small class="${diff>=0?'positive':'negative'}">${isIncome?(diff>=0?'Au-dessus de ':'Sous le prévu de '):(diff>=0?'Reste ':'Dépassé de ')}${euro(Math.abs(diff))}</small></div>
-      <div class="budget-lines">${items.map(line=>{const gi=lines.indexOf(line);return `<label class="budget-line"><span><b>${esc(line.label)}</b><small>${isIncome?'Revenu prévu':'Montant prévu'}</small></span><div class="budget-input"><input aria-label="Montant prévu pour ${esc(line.label)}" type="number" step="0.01" value="${line.planned}" data-budget="${gi}"><em>€</em></div></label>`}).join('')}</div>
+    const level=isIncome?'income':pct>=100?'danger':pct>=80?'warning':'safe';
+    const rank=isIncome?3:level==='danger'?0:level==='warning'?1:2;
+    return{name,items,isIncome,plannedTotal,actual,diff,pct,level,rank};
+  }).sort((a,b)=>a.rank-b.rank||(b.pct-a.pct)||a.name.localeCompare(b.name,'fr'));
+  const body=prepared.map(g=>{
+    const status=g.isIncome?'Revenus':g.level==='danger'?'Dépassé':g.level==='warning'?'À surveiller':'Dans le budget';
+    return `<section class="budget-group budget-${g.level} ${g.isIncome?'income-group':''}">
+      <div class="budget-group-head"><div><div class="budget-heading-line"><h3>${esc(g.name)}</h3><span class="budget-status">${status}</span></div><small>${g.items.length} poste${g.items.length>1?'s':''}</small></div><div class="budget-group-totals"><span>Prévu <b>${euro(g.plannedTotal)}</b></span><span>Dépensé <b>${euro(g.actual)}</b></span></div></div>
+      <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,g.pct)}%"></i></div><div class="budget-progress-line"><small>${g.pct.toFixed(0)} % consommé</small><small class="${g.diff>=0?'positive':'negative'}">${g.isIncome?(g.diff>=0?'Au-dessus de ':'Sous le prévu de '):(g.diff>=0?'Reste ':'Dépassé de ')}${euro(Math.abs(g.diff))}</small></div></div>
+      <div class="budget-lines">${g.items.map(line=>{const gi=lines.indexOf(line);return `<label class="budget-line"><span><b>${esc(line.label)}</b><small>${g.isIncome?'Revenu prévu':'Montant prévu'}</small></span><div class="budget-input"><input aria-label="Montant prévu pour ${esc(line.label)}" type="number" step="0.01" value="${line.planned}" data-budget="${gi}"><em>€</em></div></label>`}).join('')}</div>
     </section>`
   }).join('');
-  return layout(`${monthbar()}<div class="section-title budget-title"><div><h2>Budget • ${state.months[month].month}</h2><small>Compare le prévu au réel et ajuste les montants directement.</small></div><button class="btn secondary" data-go="home">Terminé</button></div>${cards}<div class="budget-groups">${body}</div>`)
+  return layout(`${monthbar()}<div class="section-title budget-title"><div><h2>Budget • ${state.months[month].month}</h2><small>Les catégories prioritaires sont affichées en premier.</small></div><button class="btn secondary" data-go="home">Terminé</button></div>${cards}<div class="budget-legend"><span><i class="safe"></i>Moins de 80 %</span><span><i class="warning"></i>80 à 99 %</span><span><i class="danger"></i>Dépassé</span></div><div class="budget-groups">${body}</div>`)
 }
 function annual(){
   const arr=state.months.map((m,i)=>{const t=totals(i),p=planned(i);return{m:m.month.slice(0,3),name:m.month,inc:t.income,exp:t.expense,planned:p.expense,bal:t.income-t.expense}});
@@ -567,7 +573,7 @@ function more(){
         maintenance
       ])}
       ${section('application','⚙️','Application',[
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.3 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.4 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
