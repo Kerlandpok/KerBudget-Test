@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.3.8-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.3.9-test', MAX_BACKUPS=12;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='';
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -30,8 +30,12 @@ function savingsTransfers(monthIndex=null,pointedOnly=true){
     (!pointedOnly||t.pointed)
   );
 }
+function savingsImpact(t){
+  const amount=Math.abs(Number(t.amount)||0);
+  return t.fromAccount==='savings'&&t.toAccount!=='savings'?-amount:amount;
+}
 function savingsBalance(){
-  return savingsOpening()+savingsTransfers(null,true).reduce((s,t)=>s+(Number(t.amount)||0),0);
+  return savingsOpening()+savingsTransfers(null,true).reduce((s,t)=>s+savingsImpact(t),0);
 }
 
 const MOVEMENT_TYPES=[{id:'income',label:'Revenu'},{id:'bill',label:'Facture'},{id:'expense',label:'Dépense'},{id:'savings_transfer',label:'Virement vers épargne'},{id:'internal_transfer',label:'Virement interne'},{id:'refund',label:'Remboursement'}];
@@ -186,12 +190,30 @@ function txList(items){
     return `<button type="button" class="row" data-edit="${esc(t.id)}"><div><div class="title">${esc(t.description||t.subcategory||'Mouvement')}</div><div class="sub">${esc(date)} · ${esc(t.subcategory||t.category||'Sans catégorie')}</div></div><div class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(Number(t.amount)||0))}</div></button>`;
   }).join('')}</div>`;
 }
+function savingsMovementList(items){
+  if(!items.length)return '<div class="empty">Aucun mouvement d’épargne.</div>';
+  return `<div class="savings-movements">${items.map(t=>{
+    const impact=savingsImpact(t),date=`${String(t.day||1).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:0)+1).padStart(2,'0')}/2026`;
+    const account=t.toAccount==='savings'?'Livret A':accountLabel(t.toAccount)||'Compte courant';
+    const direction=impact>=0?'Versement vers l’épargne':'Retrait de l’épargne';
+    return `<button type="button" class="savings-movement ${t.pointed?'is-pointed':'is-pending'}" data-edit="${esc(t.id)}">
+      <span class="savings-movement-icon">${impact>=0?'↗':'↙'}</span>
+      <span class="savings-movement-main"><strong>${esc(t.description||direction)}</strong><small>${esc(date)} · ${esc(account)} · ${esc(direction)}</small></span>
+      <span class="savings-movement-side"><b class="${impact>=0?'positive':'negative'}">${impact>=0?'+':'−'}${euro(Math.abs(impact))}</b><em>${t.pointed?'Pointé':'À pointer'}</em></span>
+    </button>`;
+  }).join('')}</div>`;
+}
 function savings(){
   const opening=savingsOpening();
-  const pointed=savingsTransfers(null,true);
-  const monthTransfers=savingsTransfers(month,true).slice().sort((a,b)=>(b.day||0)-(a.day||0));
-  const annual=pointed.reduce((s,t)=>s+(Number(t.amount)||0),0);
+  const allTransfers=savingsTransfers(null,false).slice().sort((a,b)=>((b.month||0)-(a.month||0))||((b.day||0)-(a.day||0)));
+  const pointed=allTransfers.filter(t=>t.pointed);
+  const unpointed=allTransfers.filter(t=>!t.pointed);
+  const deposits=pointed.filter(t=>savingsImpact(t)>=0).reduce((s,t)=>s+savingsImpact(t),0);
+  const withdrawals=Math.abs(pointed.filter(t=>savingsImpact(t)<0).reduce((s,t)=>s+savingsImpact(t),0));
+  const annual=pointed.reduce((s,t)=>s+savingsImpact(t),0);
   const current=opening+annual;
+  const estimated=current+unpointed.reduce((s,t)=>s+savingsImpact(t),0);
+  const monthTransfers=allTransfers.filter(t=>t.month===month);
   const rows=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]);
   const totalRow=rows.find(r=>r&&String(r[1]||'').toLowerCase()==='total');
   const goal=Number(totalRow?.[2]||0);
@@ -204,17 +226,26 @@ function savings(){
       <div class="hero-grid">
         <div class="hero-mini">Solde de départ<b>${euro(opening)}</b></div>
         <div class="hero-mini">Virements pointés<b>${euro(annual)}</b></div>
-        <div class="hero-mini">Ce mois-ci<b>${euro(monthTransfers.reduce((s,t)=>s+(Number(t.amount)||0),0))}</b></div>
+        <div class="hero-mini">Ce mois-ci<b>${euro(monthTransfers.filter(t=>t.pointed).reduce((s,t)=>s+savingsImpact(t),0))}</b></div>
         <div class="hero-mini">Objectif annuel<b>${euro(goal)}</b></div>
       </div>
     </section>
     <div class="section-title"><h2>Progression de l’épargne</h2></div>
-    <div class="card">
+    <div class="card savings-progress-card">
       <div class="progress"><i style="width:${progress}%"></i></div>
-      <div class="sub" style="margin-top:8px">${progress.toFixed(0)} % de l’objectif</div>
+      <div class="savings-progress-line"><strong>${progress.toFixed(0)} % de l’objectif</strong><span>${euro(current)} / ${euro(goal)}</span></div>
     </div>
-    <div class="section-title"><h2>Virements pointés • ${state.months[month].month}</h2></div>
-    ${monthTransfers.length?txList(monthTransfers):'<div class="empty">Aucun virement vers le Livret A pointé ce mois-ci.</div>'}
+    <div class="section-title"><h2>Détail de l’épargne</h2></div>
+    <section class="savings-detail-card">
+      <div><span>Épargne de départ</span><b>${euro(opening)}</b></div>
+      <div><span>Versements pointés</span><b class="positive">+${euro(deposits)}</b></div>
+      <div><span>Retraits pointés</span><b class="negative">−${euro(withdrawals)}</b></div>
+      <div class="savings-detail-total"><span>Épargne actuelle</span><b>${euro(current)}</b></div>
+      <div><span>Mouvements non pointés</span><b>${euro(unpointed.reduce((s,t)=>s+savingsImpact(t),0))}</b></div>
+      <div class="savings-detail-estimate"><span>Épargne estimée après pointage</span><b>${euro(estimated)}</b></div>
+    </section>
+    <div class="section-title"><h2>Tous les mouvements d’épargne</h2><span class="pill">${allTransfers.length}</span></div>
+    ${savingsMovementList(allTransfers)}
   `)
 }
 function solar(){let paid=state.transactions.filter(t=>/sygma/i.test(t.subcategory)||/sygma/i.test(t.description)).filter(t=>t.pointed).reduce((a,b)=>a+b.amount,0),start=13819.47,remain=Math.max(0,start-paid);return layout(`<div class="hero"><div class="label">Prêt photovoltaïque</div><div class="big">${euro(remain)}</div><div class="hero-grid"><div class="hero-mini">Montant initial<b>${euro(start)}</b></div><div class="hero-mini">Payé / pointé<b>${euro(paid)}</b></div></div></div><div class="section-title"><h2>Échéancier</h2></div><div class="list">${state.solar.map(x=>`<div class="row"><div><div class="title">Échéance ${x.n} · ${esc(x.month)}</div><div class="sub">Montant prévu</div></div><div class="amount">${euro(x.scheduled)}</div></div>`).join('')}</div>`)}
@@ -405,7 +436,7 @@ function addSubcategory(cat){const name=(prompt('Nom de la nouvelle sous-catégo
 function renameSubcategory(cat,oldName){const name=(prompt('Nouveau nom de la sous-catégorie :',oldName)||'').trim();if(!name||name===oldName)return;const list=state.categories[cat]||[];if(list.includes(name)){alert('Cette sous-catégorie existe déjà.');return}const i=list.indexOf(oldName);if(i>=0)list[i]=name;state.transactions.forEach(t=>{if(t.category===cat&&t.subcategory===oldName)t.subcategory=name});(state.recurringBills||[]).forEach(r=>{if(r.category===cat&&r.subcategory===oldName)r.subcategory=name});save('renommage sous-catégorie');render()}
 function deleteSubcategory(cat,name){const used=state.transactions.filter(t=>t.category===cat&&t.subcategory===name).length+(state.recurringBills||[]).filter(r=>r.category===cat&&r.subcategory===name).length;if(!confirm(used?`Cette sous-catégorie est utilisée ${used} fois. Les éléments conserveront la catégorie mais n’auront plus de sous-catégorie. Continuer ?`:'Supprimer cette sous-catégorie ?'))return;state.categories[cat]=(state.categories[cat]||[]).filter(x=>x!==name);state.transactions.forEach(t=>{if(t.category===cat&&t.subcategory===name)t.subcategory=''});(state.recurringBills||[]).forEach(r=>{if(r.category===cat&&r.subcategory===name)r.subcategory=''});save('suppression sous-catégorie');render()}
 
-function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.3.8 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
+function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.3.9 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
 function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='home';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
