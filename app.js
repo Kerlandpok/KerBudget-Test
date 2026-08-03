@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.0.1-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.1.0-test', MAX_BACKUPS=12;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='pending', txTypeFilter='all', txSearch='';
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -145,7 +145,31 @@ function transactions(){
     <div id="txarea">${pointageListHtml()}</div>
     <div class="pointage-footer"><span>Reste à pointer</span><strong>${euro(pendingAmount)}</strong></div>
   `);
-}function budget(){let ls=state.months[month].budgetLines, groups={};for(const l of ls)(groups[l.type==='income'?'Revenus':l.category]??=[]).push(l);return layout(`${monthbar()}<div class="section-title"><h2>Budget prévu • ${state.months[month].month}</h2><button class="btn secondary" data-go="home">Terminé</button></div><div class="list">${Object.entries(groups).map(([g,ls])=>`<div class="cathead">${esc(g)}</div>${ls.map((l,idx)=>{let gi=state.months[month].budgetLines.indexOf(l);let actual=mtx(month).filter(t=>l.type==='income'?t.category.trim()==='Revenus':t.category.trim()===g.trim()).reduce((a,b)=>a+b.amount,0);return `<div class="budgetrow"><div><b>${esc(l.label)}</b><small>${l.type==='income'?'Revenu':'Dépense'}</small></div><input type="number" step="0.01" value="${l.planned}" data-budget="${gi}"><div class="actual">${euro(actual)}</div></div>`}).join('')}`).join('')}</div><p class="muted">Colonne centrale : montant anticipé modifiable. À droite : réel actuel de la catégorie.</p>`)}
+}function budget(){
+  const lines=state.months[month].budgetLines||[], tx=mtx(month), p=planned(month), t=totals(month);
+  const groups={};
+  for(const line of lines){const key=line.type==='income'?'Revenus':line.category;(groups[key]??=[]).push(line)}
+  const expenseActual=t.expense, incomeActual=t.income;
+  const expenseRemaining=p.expense-expenseActual, incomeGap=incomeActual-p.income;
+  const used=p.expense>0?Math.max(0,expenseActual/p.expense*100):0;
+  const groupActual=(name,isIncome)=>tx.filter(x=>isIncome?x.category.trim()==='Revenus':x.category.trim()===name.trim()).reduce((a,b)=>a+(Number(b.amount)||0),0);
+  const cards=`<section class="budget-overview">
+    <div class="budget-kpi primary"><span>Budget dépenses</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
+    <div class="budget-kpi"><span>Dépenses réelles</span><strong class="negative">${euro(expenseActual)}</strong><small>Opérations du mois</small></div>
+    <div class="budget-kpi"><span>Reste disponible</span><strong class="${expenseRemaining>=0?'positive':'negative'}">${euro(expenseRemaining)}</strong><small>Prévu − réel</small></div>
+    <div class="budget-kpi"><span>Revenus réels</span><strong class="positive">${euro(incomeActual)}</strong><small>${incomeGap>=0?'Avance':'Manque'} de ${euro(Math.abs(incomeGap))}</small></div>
+  </section>`;
+  const body=Object.entries(groups).map(([name,items])=>{
+    const isIncome=name==='Revenus', plannedTotal=items.reduce((s,x)=>s+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), diff=isIncome?actual-plannedTotal:plannedTotal-actual;
+    const pct=plannedTotal>0?Math.max(0,actual/plannedTotal*100):0;
+    return `<section class="budget-group ${isIncome?'income-group':''}">
+      <div class="budget-group-head"><div><h3>${esc(name)}</h3><small>${items.length} poste${items.length>1?'s':''}</small></div><div class="budget-group-totals"><span>Prévu <b>${euro(plannedTotal)}</b></span><span>Réel <b>${euro(actual)}</b></span></div></div>
+      <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,pct)}%"></i></div><small class="${diff>=0?'positive':'negative'}">${isIncome?(diff>=0?'Au-dessus de ':'Sous le prévu de '):(diff>=0?'Reste ':'Dépassé de ')}${euro(Math.abs(diff))}</small></div>
+      <div class="budget-lines">${items.map(line=>{const gi=lines.indexOf(line);return `<label class="budget-line"><span><b>${esc(line.label)}</b><small>${isIncome?'Revenu prévu':'Montant prévu'}</small></span><div class="budget-input"><input aria-label="Montant prévu pour ${esc(line.label)}" type="number" step="0.01" value="${line.planned}" data-budget="${gi}"><em>€</em></div></label>`}).join('')}</div>
+    </section>`
+  }).join('');
+  return layout(`${monthbar()}<div class="section-title budget-title"><div><h2>Budget • ${state.months[month].month}</h2><small>Compare le prévu au réel et ajuste les montants directement.</small></div><button class="btn secondary" data-go="home">Terminé</button></div>${cards}<div class="budget-groups">${body}</div>`)
+}
 function annual(){let arr=state.months.map((m,i)=>{let t=totals(i),p=planned(i);return{m:m.month.slice(0,3),inc:t.income,exp:t.expense,planned:p.expense,bal:t.income-t.expense}});let inc=arr.reduce((a,b)=>a+b.inc,0),exp=arr.reduce((a,b)=>a+b.exp,0),bud=arr.reduce((a,b)=>a+b.planned,0),mx=Math.max(...arr.map(x=>Math.abs(x.bal)),1);return layout(`<div class="section-title"><h2>Synthèse annuelle 2026</h2></div><div class="kpi3"><div class="card"><div class="cap">REVENUS</div><div class="val positive">${euro(inc)}</div></div><div class="card"><div class="cap">DÉPENSES</div><div class="val negative">${euro(exp)}</div></div><div class="card"><div class="cap">SOLDE</div><div class="val ${inc-exp>=0?'positive':'negative'}">${euro(inc-exp)}</div></div></div><div class="card" style="margin-top:12px"><div class="cap">SOLDE MENSUEL</div><div class="chart">${arr.map(x=>`<div class="barcol"><div class="bar ${x.bal<0?'neg':''}" style="height:${Math.max(3,Math.abs(x.bal)/mx*130)}px"></div><span>${x.m}</span></div>`).join('')}</div></div><div class="section-title"><h2>Mois par mois</h2></div><div class="list">${arr.map((x,i)=>`<div class="row" data-monthgo="${i}"><div><div class="title">${state.months[i].month}</div><div class="sub">Budget dépenses ${euro(x.planned)} · Réel ${euro(x.exp)}</div></div><div class="amount ${x.bal>=0?'positive':'negative'}">${euro(x.bal)}</div></div>`).join('')}</div>`)}
 function savings(){
   const opening=savingsOpening();
