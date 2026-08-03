@@ -1,4 +1,4 @@
-# KerBudget 3.4.2 Test
+# KerBudget 3.4.3 Test
 
 - Suppression du bouton « + Ajouter » sur la page Mouvements.
 - Filtres « Toutes / Pointées / À pointer » maintenus sur une seule ligne.
@@ -42,12 +42,12 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Navigation Épargne uniformisée avec le système standard de l’application.
 
 
-## Version 3.4.2 Test
+## Version 3.4.3 Test
 - Ajout du centre de diagnostic dans Plus.
 - Vérification des catégories, sous-catégories, budgets, doublons et virements d’épargne.
 - Rapport de diagnostic téléchargeable.
 
-## Version 3.4.2 Test — Audit 4.0, sprint 1
+## Version 3.4.3 Test — Audit 4.0, sprint 1
 - Suppression complète de la détection des doublons dans le diagnostic.
 - Refonte de la page À venir en prévision chronologique.
 - Filtres par type : Tous, Revenus, Factures, Dépenses, Épargne.
