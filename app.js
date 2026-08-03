@@ -1,7 +1,7 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.3.9-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.1-test', MAX_BACKUPS=12;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
-let txStatusFilter='all', txTypeFilter='all', txSearch='';
+let txStatusFilter='all', txTypeFilter='all', txSearch='', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
 function normalizeState(raw){const base=cloneData(D);if(!raw||typeof raw!=='object')return base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
@@ -436,12 +436,104 @@ function addSubcategory(cat){const name=(prompt('Nom de la nouvelle sous-catégo
 function renameSubcategory(cat,oldName){const name=(prompt('Nouveau nom de la sous-catégorie :',oldName)||'').trim();if(!name||name===oldName)return;const list=state.categories[cat]||[];if(list.includes(name)){alert('Cette sous-catégorie existe déjà.');return}const i=list.indexOf(oldName);if(i>=0)list[i]=name;state.transactions.forEach(t=>{if(t.category===cat&&t.subcategory===oldName)t.subcategory=name});(state.recurringBills||[]).forEach(r=>{if(r.category===cat&&r.subcategory===oldName)r.subcategory=name});save('renommage sous-catégorie');render()}
 function deleteSubcategory(cat,name){const used=state.transactions.filter(t=>t.category===cat&&t.subcategory===name).length+(state.recurringBills||[]).filter(r=>r.category===cat&&r.subcategory===name).length;if(!confirm(used?`Cette sous-catégorie est utilisée ${used} fois. Les éléments conserveront la catégorie mais n’auront plus de sous-catégorie. Continuer ?`:'Supprimer cette sous-catégorie ?'))return;state.categories[cat]=(state.categories[cat]||[]).filter(x=>x!==name);state.transactions.forEach(t=>{if(t.category===cat&&t.subcategory===name)t.subcategory=''});(state.recurringBills||[]).forEach(r=>{if(r.category===cat&&r.subcategory===name)r.subcategory=''});save('suppression sous-catégorie');render()}
 
-function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.3.9 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+
+function bytesLabel(bytes){
+  const n=Number(bytes)||0;
+  if(n<1024)return n+' o';
+  if(n<1024*1024)return (n/1024).toFixed(1)+' Ko';
+  return (n/1024/1024).toFixed(2)+' Mo';
+}
+function diagnosticSnapshot(){
+  const raw=localStorage.getItem(KEY)||'';
+  const categories=Object.keys(state.categories||{});
+  const subCount=categories.reduce((n,c)=>n+((state.categories[c]||[]).length),0);
+  const budgets=(state.months||[]).reduce((n,m)=>n+((m.budgetLines||[]).length),0);
+  const savingsAccounts=new Set(savingsTransfers(null,false).flatMap(t=>[t.fromAccount,t.toAccount]).filter(x=>x==='savings')).size;
+  const b=readBackups();
+  return {
+    size:bytesLabel(new Blob([raw]).size),
+    movements:(state.transactions||[]).length,
+    categories:categories.length,
+    subcategories:subCount,
+    budgets,
+    savingsAccounts,
+    backups:b.length,
+    lastBackup:b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune',
+    lastSaved:state.meta?.lastSavedAt?new Date(state.meta.lastSavedAt).toLocaleString('fr-FR'):'Aucune'
+  };
+}
+function analyzeKerBudget(){
+  const issues=[];
+  const cats=state.categories||{};
+  const catNames=Object.keys(cats);
+  const transactions=state.transactions||[];
+  const missingCategory=transactions.filter(t=>!(t.category||'').trim());
+  if(missingCategory.length)issues.push({level:'error',title:'Mouvements sans catégorie',detail:`${missingCategory.length} mouvement${missingCategory.length>1?'s':''} à corriger.`});
+  const unknownCategory=transactions.filter(t=>(t.category||'').trim()&&!catNames.includes((t.category||'').trim()));
+  if(unknownCategory.length)issues.push({level:'warning',title:'Catégories inconnues',detail:`${unknownCategory.length} mouvement${unknownCategory.length>1?'s utilisent':' utilise'} une catégorie absente de la liste.`});
+  const invalidSubs=transactions.filter(t=>{const c=(t.category||'').trim(),sub=(t.subcategory||'').trim();return sub&&Array.isArray(cats[c])&&!cats[c].includes(sub)});
+  if(invalidSubs.length)issues.push({level:'warning',title:'Sous-catégories invalides',detail:`${invalidSubs.length} mouvement${invalidSubs.length>1?'s sont':' est'} associé${invalidSubs.length>1?'s':''} à une sous-catégorie inexistante.`});
+  const orphanBudgets=[];
+  (state.months||[]).forEach((m,mi)=>(m.budgetLines||[]).forEach(l=>{if(l.type!=='income'&&l.category&&!catNames.includes(l.category))orphanBudgets.push({month:mi,line:l})}));
+  if(orphanBudgets.length)issues.push({level:'warning',title:'Budgets orphelins',detail:`${orphanBudgets.length} ligne${orphanBudgets.length>1?'s':''} de budget utilisent une catégorie supprimée.`});
+  const seen=new Map(),duplicates=[];
+  transactions.forEach(t=>{const key=[t.budgetMonth??t.month,t.day,(t.description||'').trim().toLowerCase(),Number(t.amount)||0,inferMovementType(t),!!t.pointed].join('|');if(seen.has(key))duplicates.push(t);else seen.set(key,t.id)});
+  if(duplicates.length)issues.push({level:'warning',title:'Doublons possibles',detail:`${duplicates.length} mouvement${duplicates.length>1?'s ressemblent':' ressemble'} à un doublon.`});
+  const badSavings=savingsTransfers(null,false).filter(t=>!(t.fromAccount&&t.toAccount)||t.fromAccount===t.toAccount);
+  if(badSavings.length)issues.push({level:'error',title:'Virements d’épargne incomplets',detail:`${badSavings.length} virement${badSavings.length>1?'s doivent':' doit'} avoir un compte de départ et un compte d’arrivée différents.`});
+  const unused=catNames.filter(c=>c!=='Revenus'&&!transactions.some(t=>(t.category||'').trim()===c)&&!(state.months||[]).some(m=>(m.budgetLines||[]).some(l=>(l.category||'').trim()===c)));
+  if(unused.length)issues.push({level:'info',title:'Catégories inutilisées',detail:`${unused.length} catégorie${unused.length>1?'s ne sont':' n’est'} actuellement utilisée${unused.length>1?'s':''}.`});
+  diagnosticResults={date:new Date().toISOString(),issues};
+  return diagnosticResults;
+}
+function diagnosticReportText(){
+  const result=diagnosticResults||analyzeKerBudget(),snap=diagnosticSnapshot();
+  const status=result.issues.some(x=>x.level==='error')?'À corriger':result.issues.some(x=>x.level==='warning')?'À vérifier':'Bon';
+  return [
+    'KerBudget '+APP_VERSION,
+    'Rapport du '+new Date(result.date).toLocaleString('fr-FR'),
+    'État général : '+status,
+    '',
+    `Mouvements : ${snap.movements}`,
+    `Catégories : ${snap.categories}`,
+    `Sous-catégories : ${snap.subcategories}`,
+    `Lignes de budget : ${snap.budgets}`,
+    `Taille des données : ${snap.size}`,
+    `Dernière sauvegarde : ${snap.lastBackup}`,
+    '',
+    result.issues.length?'Points détectés :':'Aucun problème détecté.',
+    ...result.issues.map(x=>`- [${x.level.toUpperCase()}] ${x.title} — ${x.detail}`)
+  ].join('\n');
+}
+function downloadDiagnosticReport(){
+  const blob=new Blob([diagnosticReportText()],{type:'text/plain;charset=utf-8'}),a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);a.download='KerBudget-rapport-diagnostic-'+new Date().toISOString().slice(0,10)+'.txt';a.click();URL.revokeObjectURL(a.href);
+}
+function diagnostic(){
+  const snap=diagnosticSnapshot(),result=diagnosticResults;
+  const errors=result?result.issues.filter(x=>x.level==='error').length:0,warnings=result?result.issues.filter(x=>x.level==='warning').length:0;
+  const status=!result?{tone:'neutral',label:'Analyse non lancée',icon:'…'}:errors?{tone:'danger',label:`${errors} erreur${errors>1?'s':''}`,icon:'!'}:warnings?{tone:'warning',label:`${warnings} point${warnings>1?'s':''} à vérifier`,icon:'!'}:{tone:'success',label:'Tout est conforme',icon:'✓'};
+  const checks=result?result.issues.map(x=>`<article class="diagnostic-issue ${x.level}"><b>${x.level==='error'?'✕':x.level==='warning'?'!':'i'}</b><div><strong>${esc(x.title)}</strong><small>${esc(x.detail)}</small></div></article>`).join(''):'<div class="diagnostic-placeholder">Lance l’analyse pour vérifier la cohérence des données.</div>';
+  return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
+    <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
+    <section class="diagnostic-grid">
+      <div><span>Version</span><strong>3.4.1 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
+      <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
+      <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
+    </section>
+    <section class="diagnostic-card"><div class="diagnostic-card-head"><div><span>Vérifications automatiques</span><h3>Intégrité des données</h3></div><button class="btn" data-run-diagnostic>Analyser KerBudget</button></div><div class="diagnostic-results">${checks}</div></section>
+    <section class="diagnostic-card"><div class="diagnostic-card-head"><div><span>Rapport</span><h3>Conserver ou partager le résultat</h3></div></div><p>Le rapport contient uniquement des informations techniques et les anomalies détectées. Il ne modifie aucune donnée.</p><button class="btn secondary" data-download-diagnostic ${result?'':'disabled'}>Télécharger le rapport</button></section>
+  `);
+}
+
+function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card diagnostic-entry"><h3>🛠️ Diagnostic</h3><p>Vérifier l’intégrité des mouvements, catégories, budgets, sauvegardes et virements d’épargne.</p><button class="btn" data-go="diagnostic">Ouvrir le diagnostic</button></section><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.4.1 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
+function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='home';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
+let rd=document.querySelector('[data-run-diagnostic]');if(rd)rd.onclick=()=>{analyzeKerBudget();render()};let dd=document.querySelector('[data-download-diagnostic]');if(dd)dd.onclick=downloadDiagnosticReport;
 let rs=document.querySelector('[data-reset]');if(rs)rs.onclick=()=>{if(confirm('Attention : une sauvegarde sera créée avant la réinitialisation. Continuer ?')){createBackup('avant réinitialisation');state=normalizeState(D);localStorage.setItem(KEY,JSON.stringify(state));render()}}}
 function editTx(id,presetType=null){
   let old=id?state.transactions.find(t=>t.id===id):null;
@@ -516,4 +608,4 @@ function showToast(message){let old=document.querySelector('.app-toast');if(old)
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=337').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=341').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
