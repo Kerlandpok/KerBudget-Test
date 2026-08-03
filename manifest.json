@@ -1,5 +1,5 @@
 {
-  "name": "KerBudget 3.1.0 Test",
+  "name": "KerBudget 3.2.0 Test",
   "short_name": "KerBudget Test",
   "start_url": "./",
   "display": "standalone",
@@ -13,6 +13,6 @@
       "purpose": "any maskable"
     }
   ],
-  "description": "Budget avec sauvegarde protégée",
+  "description": "Tableau de bord budget moderne avec pointage et prévisions",
   "scope": "./"
 }

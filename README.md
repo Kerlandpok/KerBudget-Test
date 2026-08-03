@@ -1,3 +1,7 @@
+KerBudget 3.2.0 Test
+
+Nouvel accueil Aujourd’hui, navigation simplifiée, alertes intelligentes et accès direct aux prévisions.
+
 KerBudget 3.1.0 Test
 
 - Refonte de la page Budget : résumé, progression par catégorie et saisie plus claire.
