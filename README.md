@@ -1,4 +1,4 @@
-# KerBudget 3.3.5 Test
+# KerBudget 3.3.6 Test
 
 - Suppression du bouton « + Ajouter » sur la page Mouvements.
 - Filtres « Toutes / Pointées / À pointer » maintenus sur une seule ligne.
@@ -28,7 +28,7 @@ Disponible mis en avant, suppression du doublon Reste budget, budget consommé, 
 Version 3.3.2 : formulaires Nouveau mouvement et Modifier modernisés, type rapide, montant mis en avant, détails repliables et statut sous forme d’interrupteur.
 
 
-Version 3.3.5 : correction du versionnage visible et renouvellement forcé du cache PWA pour afficher le nouveau formulaire.
+Version 3.3.6 : correction du versionnage visible et renouvellement forcé du cache PWA pour afficher le nouveau formulaire.
 
 
-Version 3.3.5 : suppression des analyses redondantes avec les cartes Aujourd’hui, suppression du doublon Bilan mensuel dans Plus et correction renforcée des accès Épargne.
+Version 3.3.6 : suppression des analyses redondantes avec les cartes Aujourd’hui, suppression du doublon Bilan mensuel dans Plus et correction renforcée des accès Épargne.
