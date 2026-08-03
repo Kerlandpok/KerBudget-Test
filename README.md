@@ -1,3 +1,12 @@
+# KerBudget 3.4.5 Test
+
+- Refonte responsive de la Synthèse annuelle.
+- Quatre indicateurs : revenus, dépenses, épargne et solde annuels.
+- Cartes mensuelles pliables avec détail complet.
+- Accès direct aux mouvements du mois sélectionné.
+- Graphique du solde mensuel adapté au téléphone.
+- Données et calculs existants conservés.
+
 # KerBudget 3.4.4 Test
 
 - Audit de la page Budget.

@@ -185,3 +185,20 @@
 /* Audit 4.0 — Budget 3.4.4 */
 .budget-legend{display:flex;flex-wrap:wrap;gap:8px 13px;margin:-6px 0 14px;padding:0 2px;color:var(--muted);font-size:10px;font-weight:750}.budget-legend span{display:flex;align-items:center;gap:5px}.budget-legend i{width:8px;height:8px;border-radius:50%;background:var(--green)}.budget-legend i.warning{background:#d89a25}.budget-legend i.danger{background:#c34d4d}.budget-heading-line{display:flex;align-items:center;flex-wrap:wrap;gap:7px}.budget-heading-line h3{min-width:0}.budget-status{display:inline-flex;align-items:center;border-radius:999px;padding:4px 7px;background:#e9f5ef;color:#34704a;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.04em}.budget-warning{border-color:#ead6ab}.budget-warning .budget-status{background:#fff1d4;color:#8a5a00}.budget-danger{border-color:#ecc7c7}.budget-danger .budget-status{background:#fde5e5;color:#9b3434}.budget-income .budget-status{background:#e8f1f6;color:#386477}.budget-safe .budget-progress .progress i{background:var(--green)}.budget-warning .budget-progress .progress i{background:#d89a25}.budget-danger .budget-progress .progress i{background:#c34d4d}.budget-progress-line{display:flex;justify-content:space-between;align-items:center;gap:10px}.budget-progress-line small:first-child{color:var(--muted);text-align:left}.budget-progress-line small:last-child{text-align:right}.budget-kpi strong{overflow-wrap:anywhere}.budget-kpi small{line-height:1.35}
 @media(max-width:430px){.budget-overview{gap:9px}.budget-kpi{padding:13px}.budget-kpi strong{font-size:18px}.budget-kpi span{font-size:10px}.budget-kpi small{font-size:9px}.budget-progress-line{align-items:flex-start}.budget-status{font-size:7px;padding:3px 6px}.budget-group-totals{min-width:108px}.budget-group-totals span{font-size:9px}.budget-group-totals b{font-size:11px}}
+
+/* Audit 4.0 — Synthèse annuelle 3.4.5 */
+.annual-kpis-four{grid-template-columns:repeat(2,minmax(0,1fr))}
+.annual-kpis-four .annual-kpi.main{grid-column:auto}
+.annual-bar-value{font-size:9px;line-height:1;white-space:nowrap;margin-bottom:4px}
+.annual-month-card{border:1px solid var(--line);background:#fff;border-radius:17px;overflow:hidden}
+.annual-month-card summary{list-style:none;display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;cursor:pointer}
+.annual-month-card summary::-webkit-details-marker{display:none}
+.annual-month-card summary span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.annual-month-card summary strong{font-size:15px}.annual-month-card summary small{font-size:10px;color:var(--muted)}
+.annual-month-card summary>b{font-size:14px;white-space:nowrap}
+.annual-month-card[open] summary{border-bottom:1px solid var(--line);background:#fbfcfd}
+.annual-month-data-four{grid-template-columns:repeat(2,minmax(0,1fr));padding:12px 12px 4px;margin-top:0}
+.annual-month-data-four span:last-child{grid-column:auto}
+.annual-open-month{width:calc(100% - 24px);margin:8px 12px 12px}
+@media(max-width:430px){.annual-kpis-four{grid-template-columns:1fr 1fr}.annual-kpi{padding:12px}.annual-kpi strong{font-size:15px}.annual-month-data-four{grid-template-columns:1fr 1fr}.annual-chart{min-width:620px}}
+@media(min-width:700px){.annual-kpis-four{grid-template-columns:repeat(4,minmax(0,1fr))}.annual-months{grid-template-columns:repeat(2,minmax(0,1fr))}}
