@@ -1,7 +1,7 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.1-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.2-test', MAX_BACKUPS=12;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
-let txStatusFilter='all', txTypeFilter='all', txSearch='', diagnosticResults=null;
+let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
 function normalizeState(raw){const base=cloneData(D);if(!raw||typeof raw!=='object')return base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
@@ -375,44 +375,58 @@ function forecastData(i){
   const largestExpense=rows.filter(e=>e.amount<0).sort((a,b)=>a.amount-b.amount)[0]||null;
   return {opening,rows,min,ending:running,nextIncome,largestExpense};
 }
+function forecastTypeMatches(e,filter){
+  if(filter==='all')return true;
+  if(filter==='income')return e.kind==='income';
+  if(filter==='savings')return e.kind==='savings';
+  if(filter==='bill')return e.kind==='bill'||e.kind==='planned';
+  if(filter==='expense')return e.kind==='expense';
+  return true;
+}
+function forecastPeriodLabel(day,from,lastDay){
+  if(day===from)return "Aujourd’hui";
+  if(day===from+1)return 'Demain';
+  const offset=day-from;
+  if(offset>=2&&offset<=6)return 'Cette semaine';
+  if(offset>=7&&offset<=13)return 'La semaine prochaine';
+  return 'Plus tard';
+}
 function cashForecast(){
-  const f=forecastData(month);
-  const alert=f.min<0
-    ?{tone:'danger',icon:'🔴',text:`Découvert prévisionnel : ${euro(f.min)}`}
-    :f.min<200
-      ?{tone:'warning',icon:'🟠',text:`Solde minimum faible : ${euro(f.min)}`}
-      :{tone:'success',icon:'🟢',text:'Aucune période de découvert prévue.'};
+  const all=forecastData(month),from=currentDayForMonth(month),lastDay=new Date(2026,month+1,0).getDate();
+  const rangeDays=forecastRange==='7'?7:forecastRange==='15'?15:(lastDay-from+1),to=Math.min(lastDay,from+rangeDays-1);
+  const selected=all.rows.filter(e=>e.day>=from&&e.day<=to&&forecastTypeMatches(e,forecastTypeFilter));
+  let running=all.opening,min=running,totalIncome=0,totalOut=0;
+  const rows=selected.map(e=>{running+=e.amount;min=Math.min(min,running);if(e.amount>=0)totalIncome+=e.amount;else totalOut+=Math.abs(e.amount);return{...e,balanceAfter:running}});
+  const groups=[];
+  for(const e of rows){const label=forecastPeriodLabel(e.day,from,lastDay);let g=groups.find(x=>x.label===label);if(!g){g={label,rows:[],total:0};groups.push(g)}g.rows.push(e);g.total+=e.amount}
+  const ending=running;
+  const alert=min<0?{tone:'danger',icon:'🔴',text:`Découvert prévisionnel : ${euro(min)}`}:min<200?{tone:'warning',icon:'🟠',text:`Solde minimum faible : ${euro(min)}`}:{tone:'success',icon:'🟢',text:'Aucune période de découvert prévue.'};
+  const typeFilters=[['all','Tous'],['income','Revenus'],['bill','Factures'],['expense','Dépenses'],['savings','Épargne']];
+  const rangeFilters=[['7','7 jours'],['15','15 jours'],['month','Fin du mois']];
   return layout(`${monthbar()}
-    <div class="section-title"><h2>Prévision de trésorerie • ${state.months[month].month}</h2></div>
+    <div class="section-title forecast-title"><div><h2>À venir • ${state.months[month].month}</h2><small>Prévision de ton compte à partir des opérations non pointées.</small></div></div>
     <section class="forecast-alert ${alert.tone}"><span>${alert.icon}</span><strong>${alert.text}</strong></section>
-
-    <div class="forecast-cards">
-      <div><span>Solde actuel pointé</span><b>${euro(f.opening)}</b></div>
-      <div><span>Solde minimum prévu</span><b class="${f.min>=0?'positive':'negative'}">${euro(f.min)}</b></div>
-      <div><span>Fin de mois prévue</span><b class="${f.ending>=0?'positive':'negative'}">${euro(f.ending)}</b></div>
-      <div><span>Opérations à venir</span><b>${f.rows.length}</b></div>
+    <div class="forecast-cards forecast-summary">
+      <div><span>Solde actuel</span><b>${euro(all.opening)}</b></div>
+      <div><span>Revenus prévus</span><b class="positive">+${euro(totalIncome)}</b></div>
+      <div><span>Dépenses prévues</span><b class="negative">−${euro(totalOut)}</b></div>
+      <div><span>Solde prévisionnel</span><b class="${ending>=0?'positive':'negative'}">${euro(ending)}</b></div>
     </div>
-
-    <div class="forecast-highlights">
-      <div><span>Prochaine rentrée</span><b>${f.nextIncome?`${esc(f.nextIncome.title)} · ${euro(f.nextIncome.amount)}`:'Aucune'}</b></div>
-      <div><span>Plus grosse sortie</span><b>${f.largestExpense?`${esc(f.largestExpense.title)} · ${euro(Math.abs(f.largestExpense.amount))}`:'Aucune'}</b></div>
-    </div>
-
-    <div class="section-title"><h2>Évolution prévue</h2></div>
-    <div class="forecast-timeline">
-      <div class="forecast-start"><span>Aujourd’hui</span><b>${euro(f.opening)}</b></div>
-      ${f.rows.length?f.rows.map(e=>`
-        <div class="forecast-row ${e.kind}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
-          <div class="forecast-date">${String(e.day).padStart(2,'0')}</div>
-          <div class="forecast-main">
-            <strong>${esc(e.title)}</strong>
-            <small>${e.source==='recurring'?'Échéance récurrente non générée':'Mouvement non pointé'}</small>
-          </div>
-          <div class="forecast-values">
-            <b class="${e.amount>=0?'positive':'negative'}">${e.amount>=0?'+':'−'}${euro(Math.abs(e.amount))}</b>
-            <small>Solde : ${euro(e.balanceAfter)}</small>
-          </div>
-        </div>`).join(''):'<div class="empty">Aucune opération à venir pour ce mois.</div>'}
+    <section class="forecast-controls">
+      <div class="forecast-filter-row forecast-types">${typeFilters.map(([id,label])=>`<button class="filter-chip ${forecastTypeFilter===id?'active':''}" data-forecast-type="${id}">${label}</button>`).join('')}</div>
+      <div class="forecast-filter-row forecast-ranges">${rangeFilters.map(([id,label])=>`<button class="filter-chip ${forecastRange===id?'active':''}" data-forecast-range="${id}">${label}</button>`).join('')}</div>
+    </section>
+    <div class="section-title"><h2>Chronologie</h2><span>${rows.length} opération${rows.length>1?'s':''}</span></div>
+    <div class="forecast-timeline forecast-groups">
+      ${groups.length?groups.map(g=>`<section class="forecast-group">
+        <header><div><span>${g.label}</span><small>${g.rows.length} opération${g.rows.length>1?'s':''}</small></div><b class="${g.total>=0?'positive':'negative'}">${g.total>=0?'+':'−'}${euro(Math.abs(g.total))}</b></header>
+        <div class="forecast-group-list">${g.rows.map(e=>`<div class="forecast-row ${e.kind}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
+          <div class="forecast-date"><b>${String(e.day).padStart(2,'0')}</b><small>${state.months[month].month.slice(0,3)}</small></div>
+          <div class="forecast-main"><strong>${esc(e.title)}</strong><small>${e.source==='recurring'?'Échéance récurrente':'Mouvement à pointer'}</small></div>
+          <div class="forecast-values"><b class="${e.amount>=0?'positive':'negative'}">${e.amount>=0?'+':'−'}${euro(Math.abs(e.amount))}</b><small>Solde : ${euro(e.balanceAfter)}</small></div>
+        </div>`).join('')}</div>
+        <footer>Solde estimé après cette période <b>${euro(g.rows[g.rows.length-1].balanceAfter)}</b></footer>
+      </section>`).join(''):'<div class="empty">Aucune opération pour ces filtres.</div>'}
     </div>
   `);
 }
@@ -476,9 +490,6 @@ function analyzeKerBudget(){
   const orphanBudgets=[];
   (state.months||[]).forEach((m,mi)=>(m.budgetLines||[]).forEach(l=>{if(l.type!=='income'&&l.category&&!catNames.includes(l.category))orphanBudgets.push({month:mi,line:l})}));
   if(orphanBudgets.length)issues.push({level:'warning',title:'Budgets orphelins',detail:`${orphanBudgets.length} ligne${orphanBudgets.length>1?'s':''} de budget utilisent une catégorie supprimée.`});
-  const seen=new Map(),duplicates=[];
-  transactions.forEach(t=>{const key=[t.budgetMonth??t.month,t.day,(t.description||'').trim().toLowerCase(),Number(t.amount)||0,inferMovementType(t),!!t.pointed].join('|');if(seen.has(key))duplicates.push(t);else seen.set(key,t.id)});
-  if(duplicates.length)issues.push({level:'warning',title:'Doublons possibles',detail:`${duplicates.length} mouvement${duplicates.length>1?'s ressemblent':' ressemble'} à un doublon.`});
   const badSavings=savingsTransfers(null,false).filter(t=>!(t.fromAccount&&t.toAccount)||t.fromAccount===t.toAccount);
   if(badSavings.length)issues.push({level:'error',title:'Virements d’épargne incomplets',detail:`${badSavings.length} virement${badSavings.length>1?'s doivent':' doit'} avoir un compte de départ et un compte d’arrivée différents.`});
   const unused=catNames.filter(c=>c!=='Revenus'&&!transactions.some(t=>(t.category||'').trim()===c)&&!(state.months||[]).some(m=>(m.budgetLines||[]).some(l=>(l.category||'').trim()===c)));
@@ -517,7 +528,7 @@ function diagnostic(){
   return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
     <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
     <section class="diagnostic-grid">
-      <div><span>Version</span><strong>3.4.1 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Version</span><strong>3.4.2 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
       <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
       <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
       <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
@@ -527,9 +538,9 @@ function diagnostic(){
   `);
 }
 
-function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card diagnostic-entry"><h3>🛠️ Diagnostic</h3><p>Vérifier l’intégrité des mouvements, catégories, budgets, sauvegardes et virements d’épargne.</p><button class="btn" data-go="diagnostic">Ouvrir le diagnostic</button></section><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.4.1 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
+function more(){const b=readBackups(),last=b[0]?new Date(b[0].date).toLocaleString('fr-FR'):'Aucune';return layout(`<div class="quick-links"><button data-go="annual"><b>▥</b><span>Synthèse annuelle</span></button><button type="button" data-go="savings"><b>◆</b><span>Épargne</span></button></div><div class="section-title"><h2>Outils</h2></div><div class="settings-grid"><section class="settings-card diagnostic-entry"><h3>🛠️ Diagnostic</h3><p>Vérifier l’intégrité des mouvements, catégories, budgets, sauvegardes et virements d’épargne.</p><button class="btn" data-go="diagnostic">Ouvrir le diagnostic</button></section><section class="settings-card"><h3>🏷️ Catégories et sous-catégories</h3><p>Ajouter, renommer ou supprimer les catégories utilisées dans les mouvements.</p><button class="btn" data-go="categories">Gérer les catégories</button></section><section class="settings-card"><h3>🔒 Sécurité des données</h3><p>Les mises à jour conservent les données enregistrées sur cet appareil.</p><div class="security-status"><div><span>Version</span><strong>KerBudget 3.4.2 Test</strong></div><div><span>Sauvegardes locales</span><strong>${b.length}</strong></div><div><span>Dernière sauvegarde</span><strong>${last}</strong></div></div><div class="action-stack"><button class="btn" data-backup-download>Exporter une sauvegarde</button><button class="btn secondary" data-backup-import>Importer une sauvegarde</button><button class="btn secondary" data-backup-restore>Restaurer la dernière sauvegarde locale</button><input type="file" id="backupFileInput" accept="application/json,.json" hidden></div></section><section class="settings-card"><h3>📊 Bilan mensuel</h3><p>Consulter le résultat, les dépenses par catégorie et les opérations restant à pointer.</p><button class="btn" data-go="report">Ouvrir le bilan</button></section><section class="settings-card"><h3>💶 Budget mensuel</h3><p>Comparer les montants prévus aux dépenses et revenus réels.</p><button class="btn" data-go="budget">Ouvrir le budget</button></section><section class="settings-card"><h3>🔁 Factures récurrentes</h3><p>Créer automatiquement les échéances mensuelles, trimestrielles ou annuelles.</p><button class="btn" data-go="recurring">Gérer les factures</button></section><section class="settings-card"><h3>☀ Prêt photovoltaïque</h3><button class="btn secondary" data-go="solar">Ouvrir l'échéancier</button></section><section class="settings-card"><h3>Maintenance</h3><button class="btn secondary" data-export>Exporter les données brutes</button><button class="btn secondary" data-import>Importer les données brutes</button><input id="fileInput" type="file" accept="application/json" hidden><button class="btn danger" data-reset>Réinitialiser depuis Excel</button></section></div>`)}
 function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
-function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='home';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
+function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='home';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
