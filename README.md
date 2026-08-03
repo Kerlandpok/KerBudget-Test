@@ -1,4 +1,4 @@
-# KerBudget 3.3.1 Test
+# KerBudget 3.3.2 Test
 
 - Suppression du bouton « + Ajouter » sur la page Mouvements.
 - Filtres « Toutes / Pointées / À pointer » maintenus sur une seule ligne.
@@ -23,3 +23,6 @@ Disponible mis en avant, suppression du doublon Reste budget, budget consommé, 
 ## Version 3.1.1 Test
 - Ajout d’un accès visible à la page Budget depuis l’accueil et le menu Plus.
 - Conservation de la nouvelle vue Budget 3.1.
+
+
+Version 3.3.2 : formulaires Nouveau mouvement et Modifier modernisés, type rapide, montant mis en avant, détails repliables et statut sous forme d’interrupteur.
