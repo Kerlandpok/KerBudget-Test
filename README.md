@@ -1,3 +1,11 @@
+# KerBudget 3.3.1 Test
+
+- Suppression du bouton « + Ajouter » sur la page Mouvements.
+- Filtres « Toutes / Pointées / À pointer » maintenus sur une seule ligne.
+- Filtres de type répartis sur toute la largeur de l’écran.
+- Conservation des raccourcis Revenu, Facture, Dépense et Épargne.
+- Données et calculs existants conservés.
+
 KerBudget 3.2.0 Test
 
 Nouvel accueil Aujourd’hui, navigation simplifiée, alertes intelligentes et accès direct aux prévisions.
