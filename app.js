@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.5-test', MAX_BACKUPS=12;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.6-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -8,7 +8,30 @@ function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||
 function writeBackups(v){localStorage.setItem(BACKUP_KEY,JSON.stringify(v.slice(0,MAX_BACKUPS)))}
 function createBackup(reason='automatique'){try{const raw=localStorage.getItem(KEY);if(!raw)return;const data=JSON.parse(raw),signature=JSON.stringify(data.transactions||[]);let b=readBackups();if(b[0]&&b[0].signature===signature)return;b.unshift({id:'b'+Date.now(),date:new Date().toISOString(),reason,signature,data});writeBackups(b)}catch(e){console.warn(e)}}
 function load(){try{const raw=localStorage.getItem(KEY);return raw?normalizeState(JSON.parse(raw)):normalizeState(D)}catch(e){const b=readBackups();return b.length?normalizeState(b[0].data):normalizeState(D)}}
-function save(reason='modification'){if(localStorage.getItem(KEY))createBackup(reason);state.meta={...(state.meta||{}),appVersion:APP_VERSION,lastSavedAt:new Date().toISOString()};localStorage.setItem(KEY,JSON.stringify(state))}
+function isQuotaError(e){return !!e&&(e.name==='QuotaExceededError'||e.name==='NS_ERROR_DOM_QUOTA_REACHED'||e.code===22||e.code===1014)}
+function freeStorageForSave(){
+  try{
+    let backups=readBackups();
+    while(backups.length>2){backups.pop();try{writeBackups(backups)}catch(e){break}}
+    if(backups.length>2)writeBackups(backups.slice(0,2));
+  }catch(e){console.warn('Nettoyage des sauvegardes impossible',e)}
+}
+function save(reason='modification'){
+  if(localStorage.getItem(KEY))createBackup(reason);
+  state.meta={...(state.meta||{}),appVersion:APP_VERSION,lastSavedAt:new Date().toISOString()};
+  const raw=JSON.stringify(state);
+  try{localStorage.setItem(KEY,raw);return true}
+  catch(e){
+    if(isQuotaError(e)){
+      freeStorageForSave();
+      try{localStorage.setItem(KEY,raw);return true}catch(e2){
+        try{localStorage.removeItem(BACKUP_KEY);localStorage.setItem(KEY,raw);return true}catch(e3){console.error(e3)}
+    }}
+    console.error(e);
+    alert('Impossible d’enregistrer le mouvement. L’espace de stockage local est saturé. Une sauvegarde peut être exportée depuis Plus.');
+    return false;
+  }
+}
 function downloadBackup(){createBackup('export manuel');const blob=new Blob([JSON.stringify({format:'KerBudget Backup',version:APP_VERSION,exportedAt:new Date().toISOString(),state},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='KerBudget-sauvegarde-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(a.href)}
 function importBackupFile(file){const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result),incoming=p.state||p;if(!Array.isArray(incoming.transactions))throw 0;createBackup('avant import');state=normalizeState(incoming);localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde importée.')}catch(e){alert('Fichier de sauvegarde invalide.')}};r.readAsText(file)}
 function recoverLatestBackup(){const b=readBackups();if(!b.length){alert('Aucune sauvegarde disponible.');return}if(confirm('Restaurer la sauvegarde du '+new Date(b[0].date).toLocaleString('fr-FR')+' ?')){state=normalizeState(cloneData(b[0].data));localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde restaurée.')}}
@@ -584,7 +607,7 @@ function more(){
         maintenance
       ])}
       ${section('application','⚙️','Application',[
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.5 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.6 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
@@ -659,15 +682,17 @@ function editTx(id,presetType=null){
     t.subcategory=sub.value;
     t.pointed=document.querySelector('#fpoint').checked;
     normalizeMovement(t);
-    if(!old)state.transactions.push(t);
-    save(old?'modification mouvement':'ajout mouvement');closeModal();render();
-    showToast(old?'Mouvement modifié':'Mouvement ajouté');
+    const added=!old;
+    if(added)state.transactions.push(t);
+    const ok=save(old?'modification mouvement':'ajout mouvement');
+    if(!ok){if(added)state.transactions=state.transactions.filter(x=>x.id!==t.id);return}
+    closeModal();render();showToast(old?'Mouvement modifié':'Mouvement ajouté');
   };
-  let dup=document.querySelector('#duplicate');if(dup)dup.onclick=()=>{const copy=cloneData(t);copy.id='u'+Date.now();copy.day=new Date().getDate();copy.pointed=false;state.transactions.push(copy);save('duplication mouvement');closeModal();render();showToast('Mouvement dupliqué')};
-  let del=document.querySelector('#del');if(del)del.onclick=()=>{if(confirm('Supprimer ce mouvement ?')){state.transactions=state.transactions.filter(x=>x.id!==t.id);save('suppression mouvement');closeModal();render();showToast('Mouvement supprimé')}};
+  let dup=document.querySelector('#duplicate');if(dup)dup.onclick=()=>{const copy=cloneData(t);copy.id='u'+Date.now();copy.day=new Date().getDate();copy.pointed=false;state.transactions.push(copy);if(!save('duplication mouvement')){state.transactions=state.transactions.filter(x=>x.id!==copy.id);return}closeModal();render();showToast('Mouvement dupliqué')};
+  let del=document.querySelector('#del');if(del)del.onclick=()=>{if(confirm('Supprimer ce mouvement ?')){const before=state.transactions;state.transactions=state.transactions.filter(x=>x.id!==t.id);if(!save('suppression mouvement')){state.transactions=before;return}closeModal();render();showToast('Mouvement supprimé')}};
 }
 function showToast(message){let old=document.querySelector('.app-toast');if(old)old.remove();let el=document.createElement('div');el.className='app-toast';el.textContent=message+' ✓';document.body.appendChild(el);requestAnimationFrame(()=>el.classList.add('show'));setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),250)},1800)}
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=341').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=346').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
