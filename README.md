@@ -1,4 +1,4 @@
-# KerBudget 3.4.6 Test
+# KerBudget 3.4.7 Test
 
 - Refonte responsive de la Synthèse annuelle.
 - Quatre indicateurs : revenus, dépenses, épargne et solde annuels.
