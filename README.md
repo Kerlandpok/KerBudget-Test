@@ -1,4 +1,4 @@
-# KerBudget 3.4.8 Test
+# KerBudget 3.4.9 Test
 
 - Refonte responsive de la Synthèse annuelle.
 - Quatre indicateurs : revenus, dépenses, épargne et solde annuels.
@@ -72,3 +72,8 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Horizons : 7 jours, 15 jours, fin du mois.
 - Regroupement Aujourd’hui, Demain, Cette semaine, Semaine prochaine et Plus tard.
 - Solde estimé affiché après chaque période.
+
+
+## 3.4.9 Test
+- Paramètres de prévision : jours ouvrés, jours fériés français et délai des dépenses non pointées.
+- Intégration des dépenses non pointées dont la date est passée dans la page À venir.

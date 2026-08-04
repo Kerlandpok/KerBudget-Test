@@ -1,9 +1,9 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.8-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.9-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
-function normalizeState(raw){const base=cloneData(D);if(!raw||typeof raw!=='object')return base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
+function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
 function writeBackups(v){localStorage.setItem(BACKUP_KEY,JSON.stringify(v.slice(0,MAX_BACKUPS)))}
 function createBackup(reason='automatique'){try{const raw=localStorage.getItem(KEY);if(!raw)return;const data=JSON.parse(raw),signature=JSON.stringify(data.transactions||[]);let b=readBackups();if(b[0]&&b[0].signature===signature)return;b.unshift({id:'b'+Date.now(),date:new Date().toISOString(),reason,signature,data});writeBackups(b)}catch(e){console.warn(e)}}
@@ -120,6 +120,13 @@ function recurringToGenerate(i){return(state.recurringBills||[]).filter(r=>recur
 function importantUpcoming(i){return forecastData(i).rows.slice(0,3)}
 function budgetAlerts(i){const out=[],lines=state.months[i].budgetLines||[],plannedByCategory={},spentByCategory={};for(const l of lines){if(l.type!=='expense')continue;const k=(l.category||'Dépenses').trim();plannedByCategory[k]=(plannedByCategory[k]||0)+(Number(l.planned)||0)}for(const t of mtx(i).filter(t=>isExpenseType(t))){const k=(t.category||'Dépenses').trim();spentByCategory[k]=(spentByCategory[k]||0)+(Number(t.amount)||0)}for(const [category,planned] of Object.entries(plannedByCategory)){if(planned<=0)continue;const spent=spentByCategory[category]||0,ratio=spent/planned;if(ratio>1)out.push({tone:'danger',text:`${category} : budget dépassé de ${euro(spent-planned)}`});else if(ratio>=.85)out.push({tone:'warning',text:`${category} : ${(ratio*100).toFixed(0)} % du budget utilisé`})}const projected=balance(i,false);if(projected<0)out.unshift({tone:'danger',text:`Solde prévisionnel négatif de ${euro(Math.abs(projected))}`});return out.slice(0,4)}
 function currentDayForMonth(i){const n=new Date();return n.getFullYear()===2026&&n.getMonth()===i?n.getDate():1}
+function easterSunday(year){const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31)-1,day=(h+l-7*m+114)%31+1;return new Date(year,month,day)}
+function frenchHolidays(year){const fixed=[[0,1],[4,1],[4,8],[6,14],[7,15],[10,1],[10,11],[11,25]],e=easterSunday(year),dates=fixed.map(([m,d])=>new Date(year,m,d));for(const offset of [1,39,50]){const x=new Date(e);x.setDate(x.getDate()+offset);dates.push(x)}return new Set(dates.map(d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`))}
+function isBusinessDay(date){if(date.getDay()===0||date.getDay()===6)return false;if(state.forecastSettings?.useFrenchHolidays){const h=frenchHolidays(date.getFullYear());if(h.has(`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`))return false}return true}
+function nextBusinessDay(date){const d=new Date(date);while(!isBusinessDay(d))d.setDate(d.getDate()+1);return d}
+function addBusinessDays(date,count){const d=new Date(date);let left=Math.max(0,Number(count)||0);while(left>0){d.setDate(d.getDate()+1);if(isBusinessDay(d))left--}return d}
+function forecastDateForMovement(t){const year=2026,baseMonth=movementMonth(t),last=new Date(year,baseMonth+1,0).getDate(),base=new Date(year,baseMonth,Math.min(last,Math.max(1,Number(t.day)||1))),type=inferMovementType(t),cfg=state.forecastSettings||{};let d=new Date(base),estimated=false,shifted=false;const now=new Date();now.setHours(0,0,0,0);if(type==='expense'&&!t.pointed&&Number(cfg.expenseDelay)>0&&base<now){d=addBusinessDays(now,Number(cfg.expenseDelay));estimated=true}else{const shouldShift=(type==='bill'&&cfg.shiftBills)||(isIncomeType(t)&&cfg.shiftIncome)||(type==='savings_transfer'&&cfg.shiftSavings);if(shouldShift&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}}return{date:d,estimated,shifted}}
+
 function upcomingWithinDays(i,days=7){const from=currentDayForMonth(i),to=Math.min(new Date(2026,i+1,0).getDate(),from+days-1);return forecastData(i).rows.filter(x=>x.day>=from&&x.day<=to)}
 function smartInsights(i){
   const out=[], f=forecastData(i);
@@ -405,31 +412,26 @@ function monthlyReport(){const r=monthReport(month),status=r.pending.length?'Pro
 
 function forecastEvents(i){
   const events=[];
-  for(const t of mtx(i).filter(t=>!t.pointed)){
+  for(const t of state.transactions.filter(t=>!t.pointed)){
     normalizeMovement(t);
-    const type=inferMovementType(t);
-    const isIncome=isIncomeType(t);
+    const planned=forecastDateForMovement(t);
+    if(planned.date.getFullYear()!==2026||planned.date.getMonth()!==i)continue;
+    const type=inferMovementType(t),isIncome=isIncomeType(t);
     events.push({
-      id:t.id,
-      day:Math.min(31,Math.max(1,Number(t.day)||1)),
-      title:t.description||t.subcategory||typeLabel(type)||'Mouvement',
-      amount:cashImpact(t),
-      kind:isIncome?'income':(type==='savings_transfer'?'savings':type==='bill'?'bill':'expense'),
-      source:'movement'
+      id:t.id,day:planned.date.getDate(),title:t.description||t.subcategory||typeLabel(type)||'Mouvement',amount:cashImpact(t),
+      kind:isIncome?'income':(type==='savings_transfer'?'savings':type==='bill'?'bill':'expense'),source:'movement',estimated:planned.estimated,shifted:planned.shifted
     });
   }
   for(const r of state.recurringBills||[]){
-    if(!recurringDue(r,i))continue;
-    const key=recurringKey(r,i);
-    if(state.transactions.some(t=>t.recurringKey===key))continue;
-    events.push({
-      id:'planned-'+key,
-      day:Math.min(31,Math.max(1,Number(r.day)||1)),
-      title:r.name,
-      amount:-Math.abs(Number(r.amount)||0),
-      kind:'planned',
-      source:'recurring'
-    });
+    for(const sourceMonth of [i-1,i]){
+      if(sourceMonth<0||!recurringDue(r,sourceMonth))continue;
+      const key=recurringKey(r,sourceMonth);
+      if(state.transactions.some(t=>t.recurringKey===key))continue;
+      let d=new Date(2026,sourceMonth,Math.min(new Date(2026,sourceMonth+1,0).getDate(),Math.max(1,Number(r.day)||1))),shifted=false;
+      if(state.forecastSettings?.shiftBills&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}
+      if(d.getMonth()!==i||d.getFullYear()!==2026)continue;
+      events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:-Math.abs(Number(r.amount)||0),kind:'planned',source:'recurring',shifted,estimated:false});
+    }
   }
   return events.sort((a,b)=>a.day-b.day||a.title.localeCompare(b.title,'fr'));
 }
@@ -495,7 +497,7 @@ function cashForecast(){
         <header><div><span>${g.label}</span><small>${g.rows.length} opération${g.rows.length>1?'s':''}</small></div><b class="${g.total>=0?'positive':'negative'}">${g.total>=0?'+':'−'}${euro(Math.abs(g.total))}</b></header>
         <div class="forecast-group-list">${g.rows.map(e=>`<div class="forecast-row ${e.kind}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
           <div class="forecast-date"><b>${String(e.day).padStart(2,'0')}</b><small>${state.months[month].month.slice(0,3)}</small></div>
-          <div class="forecast-main"><strong>${esc(e.title)}</strong><small>${e.source==='recurring'?'Échéance récurrente':'Mouvement à pointer'}</small></div>
+          <div class="forecast-main"><strong>${esc(e.title)}</strong><small>${e.estimated?'Prévision automatique':e.shifted?'Report au jour ouvré':e.source==='recurring'?'Échéance récurrente':'Mouvement à pointer'}</small></div>
           <div class="forecast-values"><b class="${e.amount>=0?'positive':'negative'}">${e.amount>=0?'+':'−'}${euro(Math.abs(e.amount))}</b><small>Solde réel prévu : ${euro(e.balanceAfter)}</small></div>
         </div>`).join('')}</div>
         <footer>Solde réel prévu après la dernière opération affichée <b>${euro(g.rows[g.rows.length-1].balanceAfter)}</b></footer>
@@ -611,6 +613,18 @@ function diagnostic(){
   `);
 }
 
+function forecastSettingsPage(){const c=state.forecastSettings;return layout(`<div class="section-title"><div><h2>Prévisions</h2><small>Choisis comment KerBudget estime les dates dans À venir.</small></div></div>
+  <section class="settings-card"><h3>Jours ouvrés</h3>
+    <label class="setting-line"><span><b>Factures</b><small>Reporter au prochain jour ouvré.</small></span><input type="checkbox" data-forecast-setting="shiftBills" ${c.shiftBills?'checked':''}></label>
+    <label class="setting-line"><span><b>Revenus</b><small>Reporter au prochain jour ouvré.</small></span><input type="checkbox" data-forecast-setting="shiftIncome" ${c.shiftIncome?'checked':''}></label>
+    <label class="setting-line"><span><b>Virements d’épargne</b><small>Reporter au prochain jour ouvré.</small></span><input type="checkbox" data-forecast-setting="shiftSavings" ${c.shiftSavings?'checked':''}></label>
+    <label class="setting-line"><span><b>Jours fériés français</b><small>Les considérer comme non ouvrés.</small></span><input type="checkbox" data-forecast-setting="useFrenchHolidays" ${c.useFrenchHolidays?'checked':''}></label>
+  </section>
+  <section class="settings-card"><h3>Dépenses non pointées</h3><p>Lorsqu’une dépense est encore non pointée et que sa date est passée, la prévoir dans :</p>
+    <div class="delay-options">${[[0,'Ne pas prévoir'],[1,'1 jour ouvré'],[2,'2 jours ouvrés'],[3,'3 jours ouvrés']].map(([v,l])=>`<label class="delay-choice"><input type="radio" name="expenseDelay" value="${v}" ${Number(c.expenseDelay)===v?'checked':''}><span>${l}</span></label>`).join('')}</div>
+  </section>
+  <p class="settings-note">Les dates saisies restent inchangées dans les mouvements. Ces réglages modifient uniquement la prévision affichée.</p>`)}
+
 function more(){
   const backups=readBackups(), last=backups[0]?new Date(backups[0].date).toLocaleString('fr-FR'):'Aucune';
   let openSections={};try{openSections=JSON.parse(localStorage.getItem('kerbudget.more.sections')||'{}')}catch(e){}
@@ -640,18 +654,20 @@ function more(){
         maintenance
       ])}
       ${section('application','⚙️','Application',[
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.8 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.9 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
 let rd=document.querySelector('[data-run-diagnostic]');if(rd)rd.onclick=()=>{analyzeKerBudget();render()};let dd=document.querySelector('[data-download-diagnostic]');if(dd)dd.onclick=downloadDiagnosticReport;
 let ms=document.querySelector('#moreSearch');if(ms)ms.oninput=()=>{const q=ms.value.trim().toLowerCase(),items=[...document.querySelectorAll('[data-more-item]')];let visible=0;items.forEach(x=>{const show=!q||(x.dataset.search||'').includes(q);x.hidden=!show;if(show)visible++});document.querySelectorAll('.more-section').forEach(sec=>{const count=[...sec.querySelectorAll('[data-more-item]')].filter(x=>!x.hidden).length;sec.hidden=count===0;if(q&&count)sec.open=true});const empty=document.querySelector('#moreEmpty');if(empty)empty.hidden=visible!==0};document.querySelectorAll('[data-more-section]').forEach(sec=>sec.ontoggle=()=>{let v={};try{v=JSON.parse(localStorage.getItem('kerbudget.more.sections')||'{}')}catch(e){}v[sec.dataset.moreSection]=sec.open;localStorage.setItem('kerbudget.more.sections',JSON.stringify(v))});
+document.querySelectorAll('[data-forecast-setting]').forEach(x=>x.onchange=()=>{state.forecastSettings[x.dataset.forecastSetting]=x.checked;save('réglages prévisions');render()});document.querySelectorAll('input[name="expenseDelay"]').forEach(x=>x.onchange=()=>{state.forecastSettings.expenseDelay=+x.value;save('réglages prévisions');render()});
 let rs=document.querySelector('[data-reset]');if(rs)rs.onclick=()=>{if(confirm('Attention : une sauvegarde sera créée avant la réinitialisation. Continuer ?')){createBackup('avant réinitialisation');state=normalizeState(D);localStorage.setItem(KEY,JSON.stringify(state));render()}}}
 function editTx(id,presetType=null){
   let old=id?state.transactions.find(t=>t.id===id):null;
@@ -728,4 +744,4 @@ function showToast(message){let old=document.querySelector('.app-toast');if(old)
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=346').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=349').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
