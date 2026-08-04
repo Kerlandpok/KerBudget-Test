@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.7-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.8-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -39,7 +39,8 @@ migrateMovements();
 window.addEventListener('beforeunload',()=>createBackup('fermeture'));
 const euro=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(n)||0);
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-function mtx(i){return state.transactions.filter(t=>(Number.isInteger(t.budgetMonth)?t.budgetMonth:t.month)===i)}
+function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
+function mtx(i){return state.transactions.filter(t=>movementMonth(t)===i)}
 function isSavingsTransfer(t){const s=((t.category||'')+' '+(t.subcategory||'')+' '+(t.description||'')).toLowerCase();return s.includes('épargne')||s.includes('epargne')||s.includes('livret a')}
 function savingsOpening(){
   const rows=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]);
@@ -48,7 +49,7 @@ function savingsOpening(){
 }
 function savingsTransfers(monthIndex=null,pointedOnly=true){
   return state.transactions.filter(t=>
-    (monthIndex===null||(Number.isInteger(t.budgetMonth)?t.budgetMonth:t.month)===monthIndex)&&
+    (monthIndex===null||movementMonth(t)===monthIndex)&&
     isSavingsType(t)&&
     (!pointedOnly||t.pointed)
   );
@@ -95,6 +96,23 @@ function daysLeftInMonth(i){const n=new Date();if(n.getFullYear()!==2026||n.getM
 function billsPending(i){return mtx(i).filter(t=>inferMovementType(t)==='bill'&&!t.pointed)}
 function unpointedMovements(i){return mtx(i).filter(t=>!t.pointed)}
 function monthSavings(i){return savingsTransfers(i,true).reduce((s,t)=>s+savingsImpact(t),0)}
+function monthMetrics(i){
+  const txTotals=totals(i), plan=planned(i), cash=cashTotals(i), savings=monthSavings(i);
+  const resultBeforeSavings=txTotals.income-txTotals.expense;
+  const checkingVariation=resultBeforeSavings-savings;
+  return {
+    ...txTotals,
+    plannedIncome:plan.income,
+    plannedExpense:plan.expense,
+    cashNet:cash.net,
+    pointedCashNet:cash.pnet,
+    savings,
+    resultBeforeSavings,
+    checkingVariation,
+    projectedBalance:balance(i,false),
+    pointedBalance:balance(i,true)
+  };
+}
 function savingsGoal(){const r=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]).find(x=>x&&String(x[1]||'').toLowerCase()==='total');return Number(r?.[2]||0)}
 function dashboardStatus(i){const p=billsPending(i).length,b=balance(i,false);if(b<0)return{tone:'danger',icon:'🔴',text:'Attention, le solde prévisionnel est négatif.'};if(p>0)return{tone:'warning',icon:'🟠',text:`Il reste ${p} facture${p>1?'s':''} à pointer.`};return{tone:'success',icon:'🟢',text:'Tout est à jour.'}}
 function incompleteMovements(i){return mtx(i).filter(t=>!(t.description||'').trim()||!(t.category||'').trim())}
@@ -214,10 +232,8 @@ function budget(){
 }
 function annual(){
   const arr=state.months.map((m,i)=>{
-    const t=totals(i),p=planned(i),savings=monthSavings(i);
-    const result=t.income-t.expense;
-    const checkingVariation=result-savings;
-    return{m:m.month.slice(0,3),name:m.month,inc:t.income,exp:t.expense,planned:p.expense,savings,result,checkingVariation};
+    const x=monthMetrics(i);
+    return{m:m.month.slice(0,3),name:m.month,inc:x.income,exp:x.expense,planned:x.plannedExpense,savings:x.savings,result:x.resultBeforeSavings,checkingVariation:x.checkingVariation};
   });
   const inc=arr.reduce((a,b)=>a+b.inc,0),exp=arr.reduce((a,b)=>a+b.exp,0),sav=arr.reduce((a,b)=>a+b.savings,0),result=inc-exp,checkingVariation=result-sav;
   const mx=Math.max(...arr.map(x=>Math.abs(x.checkingVariation)),1);
@@ -260,7 +276,7 @@ function savingsMovementList(items){
 }
 function savings(){
   const opening=savingsOpening();
-  const allTransfers=savingsTransfers(null,false).slice().sort((a,b)=>((b.month||0)-(a.month||0))||((b.day||0)-(a.day||0)));
+  const allTransfers=savingsTransfers(null,false).slice().sort((a,b)=>(movementMonth(b)-movementMonth(a))||((b.day||0)-(a.day||0)));
   const pointed=allTransfers.filter(t=>t.pointed);
   const unpointed=allTransfers.filter(t=>!t.pointed);
   const deposits=pointed.filter(t=>savingsImpact(t)>=0).reduce((s,t)=>s+savingsImpact(t),0);
@@ -268,7 +284,7 @@ function savings(){
   const annual=pointed.reduce((s,t)=>s+savingsImpact(t),0);
   const current=opening+annual;
   const estimated=current+unpointed.reduce((s,t)=>s+savingsImpact(t),0);
-  const monthTransfers=allTransfers.filter(t=>t.month===month);
+  const monthTransfers=allTransfers.filter(t=>movementMonth(t)===month);
   const rows=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]);
   const totalRow=rows.find(r=>r&&String(r[1]||'').toLowerCase()==='total');
   const goal=Number(totalRow?.[2]||0);
@@ -383,7 +399,7 @@ function editRecurring(id){
   const del=document.querySelector('#rdel');
   if(del)del.onclick=()=>{if(confirm('Supprimer cette facture récurrente ? Les mouvements déjà générés resteront conservés.')){state.recurringBills=state.recurringBills.filter(x=>x.id!==r.id);save('suppression facture récurrente');closeModal();render()}}
 }
-function monthReport(i){const t=totals(i),p=planned(i),pending=mtx(i).filter(x=>!x.pointed),prev=i>0?totals(i-1):null,savings=monthSavings(i),result=t.income-t.expense-savings,cats={};for(const x of mtx(i).filter(x=>isExpenseType(x)&&x.pointed))cats[x.category]=(cats[x.category]||0)+Number(x.amount||0);const diff=(a,b)=>({value:a-b,pct:b?((a-b)/b*100):0});return{t,p,pending,prev,savings,result,top:Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),incomeDiff:prev?diff(t.income,prev.income):null,expenseDiff:prev?diff(t.expense,prev.expense):null}}
+function monthReport(i){const x=monthMetrics(i),t={income:x.income,expense:x.expense,pincome:x.pincome,pexpense:x.pexpense},p={income:x.plannedIncome,expense:x.plannedExpense},pending=mtx(i).filter(m=>!m.pointed),prev=i>0?monthMetrics(i-1):null,cats={};for(const m of mtx(i).filter(m=>isExpenseType(m)&&m.pointed))cats[m.category]=(cats[m.category]||0)+Number(m.amount||0);const diff=(a,b)=>({value:a-b,pct:b?((a-b)/b*100):0});return{t,p,pending,prev,savings:x.savings,result:x.checkingVariation,top:Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),incomeDiff:prev?diff(x.income,prev.income):null,expenseDiff:prev?diff(x.expense,prev.expense):null}}
 function diffBadge(d,invert=false){if(!d)return'<span class="trend neutral">Premier mois</span>';const good=invert?d.value<=0:d.value>=0;return`<span class="trend ${good?'good':'bad'}">${d.value>=0?'+':''}${euro(d.value)} · ${d.pct>=0?'+':''}${d.pct.toFixed(0)} %</span>`}
 function monthlyReport(){const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour';return layout(`${monthbar()}<div class="section-title"><h2>Bilan • ${state.months[month].month}</h2><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div><div class="report-grid"><section class="report-card"><span>Revenus</span><strong class="positive">${euro(r.t.income)}</strong>${diffBadge(r.incomeDiff)}</section><section class="report-card"><span>Dépenses réelles</span><strong class="negative">${euro(r.t.expense)}</strong>${diffBadge(r.expenseDiff,true)}</section><section class="report-card"><span>Épargne</span><strong>${euro(r.savings)}</strong><small>Virements pointés</small></section><section class="report-card highlight"><span>Résultat du mois</span><strong class="${r.result>=0?'positive':'negative'}">${euro(r.result)}</strong><small>Revenus − dépenses − épargne</small></section></div><div class="section-title"><h2>Situation du mois</h2></div><section class="report-summary"><div><span>Budget prévu</span><b>${euro(r.p.expense)}</b></div><div><span>Dépenses pointées</span><b>${euro(r.t.pexpense)}</b></div><div><span>Reste sur budget</span><b>${euro(r.p.expense-r.t.expense)}</b></div><div><span>Opérations non pointées</span><b>${r.pending.length}</b></div></section>${r.pending.length?`<div class="section-title"><h2>Encore à pointer</h2><button class="btn secondary" data-go="transactions">Voir</button></div>${txList(r.pending.slice(0,6))}`:''}<div class="section-title"><h2>Dépenses par catégorie</h2></div><div class="list">${r.top.length?r.top.map(([c,v])=>`<div class="row"><div><div class="title">${esc(c)}</div><div class="progress"><i style="width:${Math.min(100,v/(r.t.expense||1)*100)}%"></i></div></div><div class="amount">${euro(v)}</div></div>`).join(''):'<div class="empty">Aucune dépense pointée.</div>'}</div>`)}
 
@@ -624,7 +640,7 @@ function more(){
         maintenance
       ])}
       ${section('application','⚙️','Application',[
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.7 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.8 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
