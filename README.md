@@ -1,4 +1,4 @@
-# KerBudget 3.6.0 Test
+# KerBudget 3.7.0 Test
 
 - Gestion multi-années et archives.
 - Préparation de la nouvelle année avec report du solde pointé au 31 décembre.
