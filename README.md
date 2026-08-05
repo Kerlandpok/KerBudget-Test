@@ -1,12 +1,4 @@
-# KerBudget 3.5.0 Test
-
-- Barre de budget à 0 % toujours orange.
-- Bilan mensuel harmonisé avec le reste de l’application.
-- Toutes les catégories de dépenses du mois sont affichées.
-- Ajout des virements d’épargne récurrents.
-- Factures et virements regroupés dans Opérations récurrentes.
-
-# KerBudget 3.4.9 Test
+# KerBudget 3.5.1 Test
 
 - Refonte responsive de la Synthèse annuelle.
 - Quatre indicateurs : revenus, dépenses, épargne et solde annuels.
@@ -82,6 +74,11 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Solde estimé affiché après chaque période.
 
 
-## 3.4.9 Test
+## 3.5.1 Test
 - Paramètres de prévision : jours ouvrés, jours fériés français et délai des dépenses non pointées.
 - Intégration des dépenses non pointées dont la date est passée dans la page À venir.
+
+
+## Correctif 3.5.1
+- Suppression, modification et pointage compatibles avec les anciens identifiants numériques et les nouveaux identifiants texte.
+- Message explicite si un mouvement ne peut pas être retrouvé.
