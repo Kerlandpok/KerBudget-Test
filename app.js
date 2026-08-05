@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.1-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.3-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -762,41 +762,50 @@ function editTx(id,presetType=null){
     closeModal();render();showToast(old?'Mouvement modifié':'Mouvement ajouté');
   };
   let dup=document.querySelector('#duplicate');if(dup)dup.onclick=()=>{const copy=cloneData(t);copy.id='u'+Date.now();copy.day=new Date().getDate();copy.pointed=false;state.transactions.push(copy);if(!save('duplication mouvement')){state.transactions=state.transactions.filter(x=>!sameId(x.id,copy.id));return}closeModal();render();showToast('Mouvement dupliqué')};
-  let del=document.querySelector('#del');if(del)del.onclick=()=>{
-    const modal=document.querySelector('#modal');
-    modal.innerHTML=`<div class="sheet confirm-sheet">
-      <div class="form-head"><div><span>CONFIRMATION</span><h2>Supprimer ce mouvement ?</h2></div><button type="button" class="sheet-close" id="deleteCancelTop" aria-label="Fermer">×</button></div>
-      <div class="delete-summary"><b>${esc(t.description||'Mouvement')}</b><span>${euro(Math.abs(Number(t.amount)||0))}</span><small>${String(t.day||'').padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/2026 · ${esc(t.category||'Sans catégorie')}</small></div>
-      <p class="confirm-text">Cette suppression est définitive. Une sauvegarde locale sera créée avant l’opération.</p>
-      <div class="confirm-actions"><button type="button" class="btn secondary" id="deleteCancel">Annuler</button><button type="button" class="btn danger" id="deleteConfirm">Supprimer définitivement</button></div>
-    </div>`;
-    const cancelDelete=()=>editTx(t.id);
-    document.querySelector('#deleteCancel').onclick=cancelDelete;
-    document.querySelector('#deleteCancelTop').onclick=cancelDelete;
-    document.querySelector('#deleteConfirm').onclick=()=>{
-      const button=document.querySelector('#deleteConfirm');
-      button.disabled=true;button.textContent='Suppression…';
+  let del=document.querySelector('#del');if(del){
+    let deleteArmed=false;
+    del.onclick=()=>{
+      if(!deleteArmed){
+        deleteArmed=true;
+        del.textContent='Confirmer la suppression';
+        del.classList.add('delete-armed');
+        showToast('Appuie encore une fois pour supprimer');
+        setTimeout(()=>{
+          deleteArmed=false;
+          if(document.body.contains(del)){
+            del.textContent='Supprimer';
+            del.classList.remove('delete-armed');
+          }
+        },5000);
+        return;
+      }
+      del.disabled=true;
+      del.textContent='Suppression…';
       const before=state.transactions.slice();
       try{
         let index=state.transactions.indexOf(old);
         if(index<0)index=state.transactions.findIndex(x=>sameId(x.id,t.id));
         if(index<0)throw new Error('Mouvement introuvable');
         state.transactions.splice(index,1);
-        if(!save('suppression mouvement')){state.transactions=before;throw new Error('Enregistrement impossible')}
-        if(state.transactions.some(x=>sameId(x.id,t.id)))throw new Error('Le mouvement est encore présent après la suppression');
-        closeModal();render();showToast('Mouvement supprimé');
+        if(!save('suppression mouvement'))throw new Error('Enregistrement impossible');
+        closeModal();
+        render();
+        showToast('Mouvement supprimé');
       }catch(error){
         state.transactions=before;
         console.error('Suppression impossible',error);
-        button.disabled=false;button.textContent='Réessayer';
-        const msg=document.createElement('div');msg.className='form-error';msg.textContent='La suppression a échoué : '+(error.message||'erreur inconnue');
-        document.querySelector('.confirm-sheet').appendChild(msg);
+        del.disabled=false;
+        deleteArmed=false;
+        del.textContent='Supprimer';
+        del.classList.remove('delete-armed');
+        alert('La suppression a échoué : '+(error.message||'erreur inconnue'));
       }
     };
-  };
+  }
+
 }
 function showToast(message){let old=document.querySelector('.app-toast');if(old)old.remove();let el=document.createElement('div');el.className='app-toast';el.textContent=message+' ✓';document.body.appendChild(el);requestAnimationFrame(()=>el.classList.add('show'));setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),250)},1800)}
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=352').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=353').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();

@@ -1,10 +1,10 @@
-KerBudget 3.5.2 Test
+KerBudget 3.5.3 Test
 
 - Confirmation de suppression intégrée à l’application
 - Suppression directe par position avec vérification après sauvegarde
 - Message d’erreur visible en cas d’échec
 
-# KerBudget 3.5.1 Test
+# KerBudget 3.5.3 Test
 
 - Refonte responsive de la Synthèse annuelle.
 - Quatre indicateurs : revenus, dépenses, épargne et solde annuels.
@@ -80,11 +80,11 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Solde estimé affiché après chaque période.
 
 
-## 3.5.1 Test
+## 3.5.3 Test
 - Paramètres de prévision : jours ouvrés, jours fériés français et délai des dépenses non pointées.
 - Intégration des dépenses non pointées dont la date est passée dans la page À venir.
 
 
-## Correctif 3.5.1
+## Correctif 3.5.3
 - Suppression, modification et pointage compatibles avec les anciens identifiants numériques et les nouveaux identifiants texte.
 - Message explicite si un mouvement ne peut pas être retrouvé.
