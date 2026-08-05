@@ -1,9 +1,9 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.3-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.5-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
-function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills.map(r=>({...r,type:r.type||'bill',fromAccount:r.fromAccount||'checking',toAccount:r.toAccount||(r.type==='savings_transfer'?'savings':null)})):[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
+function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills.map(r=>({...r,type:r.type||'bill',fromAccount:r.fromAccount||'checking',toAccount:r.toAccount||(r.type==='savings_transfer'?'savings':null)})):[],recurringSkips:Array.isArray(raw.recurringSkips)?raw.recurringSkips:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
 function writeBackups(v){localStorage.setItem(BACKUP_KEY,JSON.stringify(v.slice(0,MAX_BACKUPS)))}
 function createBackup(reason='automatique'){try{const raw=localStorage.getItem(KEY);if(!raw)return;const data=JSON.parse(raw),signature=JSON.stringify(data.transactions||[]);let b=readBackups();if(b[0]&&b[0].signature===signature)return;b.unshift({id:'b'+Date.now(),date:new Date().toISOString(),reason,signature,data});writeBackups(b)}catch(e){console.warn(e)}}
@@ -147,7 +147,7 @@ function home(){
     </section>
     <section class="today-section">
       <div class="today-section-head"><div><span>Prochainement</span><h3>Les 5 prochaines opérations</h3></div><button data-go="forecast">Tout voir</button></div>
-      ${upcoming.length?`<div class="today-upcoming">${upcoming.map(x=>`<div class="today-operation" ${x.source==='movement'?`data-edit="${esc(x.id)}"`:''}><div class="today-date"><b>${String(x.day).padStart(2,'0')}</b><span>${state.months[month].month.slice(0,3)}</span></div><div><strong>${esc(x.title)}</strong><small>Solde après : ${euro(x.balanceAfter)}</small></div><b class="${x.amount>=0?'positive':'negative'}">${x.amount>=0?'+':'−'}${euro(Math.abs(x.amount))}</b></div>`).join('')}</div>`:'<div class="empty">Aucune opération à venir.</div>'}
+      ${upcoming.length?`<div class="today-upcoming">${upcoming.map(x=>`<div class="today-operation" ${x.source==='movement'?`data-edit="${esc(x.id)}"`:''}><div class="today-date"><b>${String(x.day).padStart(2,'0')}</b><span>${state.months[month].month.slice(0,3)}</span></div><div><strong>${esc(x.title)}${x.recurring?'<span class="recurring-badge" title="Mouvement récurrent">↻</span>':''}</strong><small>Solde après : ${euro(x.balanceAfter)}</small></div><b class="${x.amount>=0?'positive':'negative'}">${x.amount>=0?'+':'−'}${euro(Math.abs(x.amount))}</b></div>`).join('')}</div>`:'<div class="empty">Aucune opération à venir.</div>'}
     </section>
     ${insights.length?`<section class="today-section">
       <div class="today-section-head"><div><span>Analyse</span><h3>À retenir ce mois-ci</h3></div></div>
@@ -164,13 +164,14 @@ function transactionTypeGroup(t){
   return'expense';
 }
 function movementIcon(t){const g=transactionTypeGroup(t);return g==='income'?'↗':g==='bill'?'▤':g==='transfer'?'⇄':'−'}
+function recurringBadge(t){return t&&t.recurringKey?'<span class="recurring-badge" title="Mouvement récurrent" aria-label="Mouvement récurrent">↻</span>':''}
 function pointageRow(t){
   normalizeMovement(t);
   const positive=isIncomeType(t),flow=t.fromAccount&&t.toAccount?`${accountLabel(t.fromAccount)} → ${accountLabel(t.toAccount)}`:'';
   const meta=[t.day?String(t.day).padStart(2,'0')+'/'+String(t.month+1).padStart(2,'0')+'/2026':'2026',typeLabel(t.type),t.subcategory,flow].filter(Boolean).join(' · ');
   return `<article class="movement-card ${t.pointed?'is-pointed':'is-pending'}" data-edit="${esc(t.id)}">
     <div class="movement-icon type-${transactionTypeGroup(t)}">${movementIcon(t)}</div>
-    <div class="movement-main"><div class="movement-top"><strong>${esc(t.description||t.subcategory||'Mouvement')}</strong><span class="movement-status ${t.pointed?'done':'todo'}">${t.pointed?'Pointé':'À pointer'}</span></div><small>${esc(meta)}</small></div>
+    <div class="movement-main"><div class="movement-top"><strong>${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</strong><span class="movement-status ${t.pointed?'done':'todo'}">${t.pointed?'Pointé':'À pointer'}</span></div><small>${esc(meta)}</small></div>
     <div class="movement-side"><b class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(t.amount))}</b><button class="point-toggle" data-toggle-point="${esc(t.id)}" aria-label="${t.pointed?'Marquer non pointé':'Pointer cette opération'}">${t.pointed?'✓':'○'}</button></div>
   </article>`;
 }
@@ -265,7 +266,7 @@ function txList(items){
   return `<div class="list">${items.map(t=>{
     const positive=isIncomeType(t);
     const date=t.day?`${String(t.day).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:month)+1).padStart(2,'0')}/2026`:'Date non renseignée';
-    return `<button type="button" class="row" data-edit="${esc(t.id)}"><div><div class="title">${esc(t.description||t.subcategory||'Mouvement')}</div><div class="sub">${esc(date)} · ${esc(t.subcategory||t.category||'Sans catégorie')}</div></div><div class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(Number(t.amount)||0))}</div></button>`;
+    return `<button type="button" class="row" data-edit="${esc(t.id)}"><div><div class="title">${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</div><div class="sub">${esc(date)} · ${esc(t.subcategory||t.category||'Sans catégorie')}</div></div><div class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(Number(t.amount)||0))}</div></button>`;
   }).join('')}</div>`;
 }
 function savingsMovementList(items){
@@ -276,7 +277,7 @@ function savingsMovementList(items){
     const direction=impact>=0?'Versement vers l’épargne':'Retrait de l’épargne';
     return `<button type="button" class="savings-movement ${t.pointed?'is-pointed':'is-pending'}" data-edit="${esc(t.id)}">
       <span class="savings-movement-icon">${impact>=0?'↗':'↙'}</span>
-      <span class="savings-movement-main"><strong>${esc(t.description||direction)}</strong><small>${esc(date)} · ${esc(account)} · ${esc(direction)}</small></span>
+      <span class="savings-movement-main"><strong>${esc(t.description||direction)}${recurringBadge(t)}</strong><small>${esc(date)} · ${esc(account)} · ${esc(direction)}</small></span>
       <span class="savings-movement-side"><b class="${impact>=0?'positive':'negative'}">${impact>=0?'+':'−'}${euro(Math.abs(impact))}</b><em>${t.pointed?'Pointé':'À pointer'}</em></span>
     </button>`;
   }).join('')}</div>`;
@@ -322,7 +323,7 @@ function savings(){
       <div><span>Mouvements non pointés</span><b>${euro(unpointed.reduce((s,t)=>s+savingsImpact(t),0))}</b></div>
       <div class="savings-detail-estimate"><span>Épargne estimée après pointage</span><b>${euro(estimated)}</b></div>
     </section>
-    <div class="section-title"><h2>Tous les mouvements d’épargne</h2><div class="section-actions"><span class="pill">${allTransfers.length}</span><button class="btn secondary" data-recurring-savings>+ Récurrent</button></div></div>
+    <div class="section-title"><h2>Tous les mouvements d’épargne</h2><div class="section-actions"><span class="pill">${allTransfers.length}</span><button class="btn secondary" data-go="savings-recurring">Virements récurrents</button></div></div>
     ${savingsMovementList(allTransfers)}
   `)
 }
@@ -342,7 +343,7 @@ function ensureRecurringForMonth(m,notify=false){
   for(const r of state.recurringBills||[]){
     if(!recurringDue(r,m))continue;
     const key=recurringKey(r,m);
-    if(state.transactions.some(t=>t.recurringKey===key))continue;
+    if(state.transactions.some(t=>t.recurringKey===key)||(state.recurringSkips||[]).includes(key))continue;
     const recurringType=r.type||'bill',isSavings=recurringType==='savings_transfer';
     state.transactions.push(normalizeMovement({
       id:'rec-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
@@ -361,27 +362,39 @@ function ensureRecurringForMonth(m,notify=false){
   return created;
 }
 function recurring(){
-  const list=(state.recurringBills||[]).slice().sort((a,b)=>(a.day||1)-(b.day||1));
+  const list=(state.recurringBills||[]).filter(r=>(r.type||'bill')!=='savings_transfer').slice().sort((a,b)=>(a.day||1)-(b.day||1));
   return layout(`${monthbar()}
-    <div class="section-title"><div><h2>Opérations récurrentes</h2><small>Factures et virements d’épargne automatiques.</small></div><button class="btn" data-recurring-add>+ Ajouter</button></div>
+    <div class="section-title"><div><h2>Factures récurrentes</h2><small>Prélèvements et factures automatiques.</small></div><button class="btn" data-recurring-add data-recurring-kind="bill">+ Facture</button></div>
+    <div class="recurring-actions"><button class="btn secondary" data-recurring-generate>Générer pour ${state.months[month].month}</button></div>
+    <div class="list recurring-list">${list.length?list.map(r=>`<button type="button" class="recurring-card" data-recurring-edit="${esc(r.id)}" data-recurring-kind="bill">
+        <span class="recurring-icon">▤</span>
+        <span class="recurring-copy"><b>${r.active?'':'⏸ '}${esc(r.name)}</b><small>Le ${r.day} · ${(RECUR_FREQ.find(f=>f.id===r.frequency)||{}).label||'Mensuelle'} · ${esc(r.category||'')}</small></span>
+        <strong class="negative">−${euro(r.amount)}</strong>
+      </button>`).join(''):'<div class="empty">Aucune facture récurrente.</div>'}</div>`);
+}
+function savingsRecurring(){
+  const list=(state.recurringBills||[]).filter(r=>(r.type||'bill')==='savings_transfer').slice().sort((a,b)=>(a.day||1)-(b.day||1));
+  return layout(`${monthbar()}
+    <div class="section-title"><div><h2>Virements d’épargne récurrents</h2><small>Planifie séparément les versements et retraits de ton épargne.</small></div><button class="btn" data-recurring-add data-recurring-kind="savings_transfer">+ Virement</button></div>
     <div class="recurring-actions"><button class="btn secondary" data-recurring-generate>Générer pour ${state.months[month].month}</button></div>
     <div class="list recurring-list">${list.length?list.map(r=>{
-      const isSavings=(r.type||'bill')==='savings_transfer';
-      const detail=isSavings?`${accountLabel(r.fromAccount||'checking')} → ${accountLabel(r.toAccount||'savings')}`:esc(r.category||'');
-      return `<button type="button" class="recurring-card" data-recurring-edit="${esc(r.id)}">
-        <span class="recurring-icon ${isSavings?'savings':''}">${isSavings?'◆':'▤'}</span>
-        <span class="recurring-copy"><b>${r.active?'':'⏸ '}${esc(r.name)}</b><small>Le ${r.day} · ${(RECUR_FREQ.find(f=>f.id===r.frequency)||{}).label||'Mensuelle'} · ${detail}</small></span>
-        <strong class="${isSavings?'positive':'negative'}">${isSavings?(r.fromAccount==='savings'?'−':'+'):'−'}${euro(r.amount)}</strong>
-      </button>`}).join(''):'<div class="empty">Aucune opération récurrente.</div>'}</div>`);
+      const deposit=(r.fromAccount||'checking')!=='savings';
+      return `<button type="button" class="recurring-card" data-recurring-edit="${esc(r.id)}" data-recurring-kind="savings_transfer">
+        <span class="recurring-icon savings">◆</span>
+        <span class="recurring-copy"><b>${r.active?'':'⏸ '}${esc(r.name)}</b><small>Le ${r.day} · ${(RECUR_FREQ.find(f=>f.id===r.frequency)||{}).label||'Mensuelle'} · ${accountLabel(r.fromAccount||'checking')} → ${accountLabel(r.toAccount||'savings')}</small></span>
+        <strong class="${deposit?'positive':'negative'}">${deposit?'+':'−'}${euro(r.amount)}</strong>
+      </button>`}).join(''):'<div class="empty">Aucun virement d’épargne récurrent.</div>'}</div>`);
 }
 function editRecurring(id,presetType=null){
   const old=id?(state.recurringBills||[]).find(x=>x.id===id):null;
   const r=old||{id:'rb'+Date.now(),type:presetType||'bill',name:'',amount:0,category:'Habitation',subcategory:'',day:1,frequency:'monthly',startMonth:0,endMonth:11,active:true,variable:false,fromAccount:'checking',toAccount:'savings'};
-  r.type=r.type||'bill';
+  r.type=r.type||presetType||'bill';
+  const isSavingsModule=r.type==='savings_transfer';
+  const moduleLabel=isSavingsModule?'virement d’épargne récurrent':'facture récurrente';
   const cats=Object.keys(state.categories);
   document.querySelector('#modal').hidden=false;
-  document.querySelector('#modal').innerHTML=`<div class="sheet recurring-sheet"><div class="form-head"><div><span>${old?'MODIFICATION':'NOUVEAU'}</span><h2>${old?'Modifier':'Nouvelle'} opération récurrente</h2></div><button class="sheet-close" id="rcancel" aria-label="Fermer">×</button></div>
-    <div class="type-selector recurring-type"><button type="button" data-rtype="bill" class="${r.type==='bill'?'active':''}"><b>▤</b><span>Facture</span></button><button type="button" data-rtype="savings_transfer" class="${r.type==='savings_transfer'?'active':''}"><b>◆</b><span>Épargne</span></button></div>
+  document.querySelector('#modal').innerHTML=`<div class="sheet recurring-sheet"><div class="form-head"><div><span>${old?'MODIFICATION':'NOUVEAU'}</span><h2>${old?'Modifier':'Nouveau'} ${moduleLabel}</h2></div><button class="sheet-close" id="rcancel" aria-label="Fermer">×</button></div>
+    <div class="recurring-context ${isSavingsModule?'savings':''}"><span>${isSavingsModule?'◆':'▤'}</span><div><b>${isSavingsModule?'Épargne':'Facture'}</b><small>${isSavingsModule?'Ce virement reste séparé des factures.':'Cette opération compte comme une facture.'}</small></div></div>
     <input id="rtype" type="hidden" value="${esc(r.type)}">
     <div class="field primary-field"><label>Nom</label><input id="rname" value="${esc(r.name)}" placeholder="Ex. EDF ou Virement Livret A"></div>
     <div class="amount-field"><label>Montant</label><div><input id="ramount" type="number" inputmode="decimal" step="0.01" min="0" value="${Math.abs(Number(r.amount)||0)}"><span>€</span></div></div>
@@ -393,9 +406,8 @@ function editRecurring(id,presetType=null){
     ${old?'<div class="secondary-actions"><button class="btn danger" id="rdel">Supprimer</button></div>':''}<div class="form-save"><button class="btn" id="rok">Enregistrer</button></div></div>`;
   const cat=document.querySelector('#rcat'),sub=document.querySelector('#rsub'),type=document.querySelector('#rtype');
   function fillSubs(){if(!cat||!sub)return;const ls=state.categories[cat.value]||[];sub.innerHTML='<option value="">—</option>'+ls.map(x=>`<option ${x===r.subcategory?'selected':''}>${esc(x)}</option>`).join('')}
-  function syncRecurringType(){const savings=type.value==='savings_transfer';document.querySelector('#rbillFields').hidden=savings;document.querySelector('#rsavingsFields').hidden=!savings;document.querySelectorAll('[data-rtype]').forEach(b=>b.classList.toggle('active',b.dataset.rtype===type.value))}
+  function syncRecurringType(){const savings=type.value==='savings_transfer';document.querySelector('#rbillFields').hidden=savings;document.querySelector('#rsavingsFields').hidden=!savings}
   if(cat){cat.onchange=fillSubs;fillSubs()}syncRecurringType();
-  document.querySelectorAll('[data-rtype]').forEach(b=>b.onclick=()=>{type.value=b.dataset.rtype;syncRecurringType()});
   document.querySelector('#rcancel').onclick=closeModal;
   document.querySelector('#rok').onclick=()=>{
     const start=+document.querySelector('#rstart').value,end=+document.querySelector('#rend').value;
@@ -420,7 +432,7 @@ function monthReport(i){
   return{t,p,pending,prev,savings:x.savings,result:x.checkingVariation,categories:Object.entries(cats).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'fr')),incomeDiff:prev?diff(x.income,prev.income):null,expenseDiff:prev?diff(x.expense,prev.expense):null}
 }
 function diffBadge(d,invert=false){if(!d)return'<span class="trend neutral">Premier mois</span>';const good=invert?d.value<=0:d.value>=0;return`<span class="trend ${good?'good':'bad'}">${d.value>=0?'+':''}${euro(d.value)} · ${d.pct>=0?'+':''}${d.pct.toFixed(0)} %</span>`}
-function reportPendingList(items){return `<div class="report-pending-list">${items.map(t=>{const date=`${String(t.day||1).padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/2026`;return `<button type="button" class="report-pending-card" data-edit="${esc(t.id)}"><span class="report-pending-icon">${inferMovementType(t)==='bill'?'▤':'−'}</span><span><b>${esc(t.description||t.subcategory||'Mouvement')}</b><small>${date} · ${esc(t.subcategory||t.category||'Sans catégorie')}</small></span><strong class="negative">−${euro(Math.abs(Number(t.amount)||0))}</strong></button>`}).join('')}</div>`}
+function reportPendingList(items){return `<div class="report-pending-list">${items.map(t=>{const date=`${String(t.day||1).padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/2026`;return `<button type="button" class="report-pending-card" data-edit="${esc(t.id)}"><span class="report-pending-icon">${inferMovementType(t)==='bill'?'▤':'−'}</span><span><b>${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</b><small>${date} · ${esc(t.subcategory||t.category||'Sans catégorie')}</small></span><strong class="negative">−${euro(Math.abs(Number(t.amount)||0))}</strong></button>`}).join('')}</div>`}
 function monthlyReport(){
   const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour',max=Math.max(...r.categories.map(x=>x[1]),1);
   return layout(`${monthbar()}<div class="section-title report-title"><div><h2>Bilan • ${state.months[month].month}</h2><small>Vue complète du mois, avec toutes les catégories utilisées.</small></div><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div>
@@ -440,18 +452,18 @@ function forecastEvents(i){
     const type=inferMovementType(t),isIncome=isIncomeType(t);
     events.push({
       id:t.id,day:planned.date.getDate(),title:t.description||t.subcategory||typeLabel(type)||'Mouvement',amount:cashImpact(t),
-      kind:isIncome?'income':(type==='savings_transfer'?'savings':type==='bill'?'bill':'expense'),source:'movement',estimated:planned.estimated,shifted:planned.shifted
+      kind:isIncome?'income':(type==='savings_transfer'?'savings':type==='bill'?'bill':'expense'),source:'movement',recurring:!!t.recurringKey,estimated:planned.estimated,shifted:planned.shifted
     });
   }
   for(const r of state.recurringBills||[]){
     for(const sourceMonth of [i-1,i]){
       if(sourceMonth<0||!recurringDue(r,sourceMonth))continue;
       const key=recurringKey(r,sourceMonth);
-      if(state.transactions.some(t=>t.recurringKey===key))continue;
+      if(state.transactions.some(t=>t.recurringKey===key)||(state.recurringSkips||[]).includes(key))continue;
       let d=new Date(2026,sourceMonth,Math.min(new Date(2026,sourceMonth+1,0).getDate(),Math.max(1,Number(r.day)||1))),shifted=false;
       const shiftRecurring=(r.type||'bill')==='savings_transfer'?state.forecastSettings?.shiftSavings:state.forecastSettings?.shiftBills;if(shiftRecurring&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}
       if(d.getMonth()!==i||d.getFullYear()!==2026)continue;
-      const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',shifted,estimated:false});
+      const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',recurring:true,shifted,estimated:false});
     }
   }
   return events.sort((a,b)=>a.day-b.day||a.title.localeCompare(b.title,'fr'));
@@ -518,7 +530,7 @@ function cashForecast(){
         <header><div><span>${g.label}</span><small>${g.rows.length} opération${g.rows.length>1?'s':''}</small></div><b class="${g.total>=0?'positive':'negative'}">${g.total>=0?'+':'−'}${euro(Math.abs(g.total))}</b></header>
         <div class="forecast-group-list">${g.rows.map(e=>`<div class="forecast-row ${e.kind}" ${e.source==='movement'?`data-edit="${esc(e.id)}"`:''}>
           <div class="forecast-date"><b>${String(e.day).padStart(2,'0')}</b><small>${state.months[month].month.slice(0,3)}</small></div>
-          <div class="forecast-main"><strong>${esc(e.title)}</strong><small>${e.estimated?'Prévision automatique':e.shifted?'Report au jour ouvré':e.source==='recurring'?'Échéance récurrente':'Mouvement à pointer'}</small></div>
+          <div class="forecast-main"><strong>${esc(e.title)}${e.recurring?'<span class="recurring-badge" title="Mouvement récurrent">↻</span>':''}</strong><small>${e.estimated?'Prévision automatique':e.shifted?'Report au jour ouvré':e.source==='recurring'?'Échéance récurrente':'Mouvement à pointer'}</small></div>
           <div class="forecast-values"><b class="${e.amount>=0?'positive':'negative'}">${e.amount>=0?'+':'−'}${euro(Math.abs(e.amount))}</b><small>Solde réel prévu : ${euro(e.balanceAfter)}</small></div>
         </div>`).join('')}</div>
         <footer>Solde réel prévu après la dernière opération affichée <b>${euro(g.rows[g.rows.length-1].balanceAfter)}</b></footer>
@@ -667,7 +679,7 @@ function more(){
       ])}
       ${section('management','🗂️','Gestion',[
         item('categories','🏷️','Catégories et sous-catégories','Ajouter, renommer ou supprimer.','classement'),
-        item('recurring','🔁','Opérations récurrentes','Factures et virements d’épargne automatiques.','mensuel trimestriel annuel épargne'),
+        item('recurring','🔁','Factures récurrentes','Prélèvements et factures automatiques.','mensuel trimestriel annuel'),
         backupItem
       ])}
       ${section('tools','🛠️','Outils',[
@@ -676,14 +688,14 @@ function more(){
       ])}
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.0 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.5 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
-function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
-let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();let rsa=document.querySelector('[data-recurring-savings]');if(rsa)rsa.onclick=()=>editRecurring(null,'savings_transfer');
+function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
+let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring(null,ra.dataset.recurringKind||'bill');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
 let rd=document.querySelector('[data-run-diagnostic]');if(rd)rd.onclick=()=>{analyzeKerBudget();render()};let dd=document.querySelector('[data-download-diagnostic]');if(dd)dd.onclick=downloadDiagnosticReport;
@@ -786,8 +798,14 @@ function editTx(id,presetType=null){
         let index=state.transactions.indexOf(old);
         if(index<0)index=state.transactions.findIndex(x=>sameId(x.id,t.id));
         if(index<0)throw new Error('Mouvement introuvable');
+        const removed=state.transactions[index];
         state.transactions.splice(index,1);
+        if(removed&&removed.recurringKey){
+          state.recurringSkips=Array.from(new Set([...(state.recurringSkips||[]),removed.recurringKey]));
+        }
         if(!save('suppression mouvement'))throw new Error('Enregistrement impossible');
+        const stored=JSON.parse(localStorage.getItem(KEY)||'{}');
+        if((stored.transactions||[]).some(x=>sameId(x.id,removed?.id)))throw new Error('La suppression n’a pas été enregistrée');
         closeModal();
         render();
         showToast('Mouvement supprimé');
@@ -808,4 +826,4 @@ function showToast(message){let old=document.querySelector('.app-toast');if(old)
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=353').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=355').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
