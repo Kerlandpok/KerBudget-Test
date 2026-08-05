@@ -1,3 +1,9 @@
+KerBudget 3.5.2 Test
+
+- Confirmation de suppression intégrée à l’application
+- Suppression directe par position avec vérification après sauvegarde
+- Message d’erreur visible en cas d’échec
+
 # KerBudget 3.5.1 Test
 
 - Refonte responsive de la Synthèse annuelle.
