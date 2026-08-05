@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.5-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.7-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -38,6 +38,24 @@ function recoverLatestBackup(){const b=readBackups();if(!b.length){alert('Aucune
 migrateMovements();
 window.addEventListener('beforeunload',()=>createBackup('fermeture'));
 const euro=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(n)||0);
+function budgetState(plannedAmount,actualAmount,isIncome=false){
+  // Comparaison en centimes pour éviter qu'un écart invisible de flottants
+  // transforme un budget exactement atteint en faux dépassement.
+  const plannedCents=Math.max(0,Math.round((Number(plannedAmount)||0)*100));
+  const actualCents=Math.max(0,Math.round((Number(actualAmount)||0)*100));
+  const plannedValue=plannedCents/100,actualValue=actualCents/100;
+  const diffCents=isIncome?actualCents-plannedCents:plannedCents-actualCents;
+  const diff=diffCents/100;
+  const pct=plannedCents>0?Math.max(0,actualCents/plannedCents*100):(actualCents>0?100:0);
+  if(isIncome)return{level:'income',status:'Revenus',diff,pct};
+  if(actualCents===0)return{level:'zero',status:'Budget non commencé',diff:plannedValue,pct:0};
+  if(plannedCents===0)return{level:'danger',status:'Dépassé',diff:-actualValue,pct:100};
+  if(actualCents===plannedCents)return{level:'reached',status:'Budget atteint',diff:0,pct:100};
+  if(actualCents>plannedCents)return{level:'danger',status:'Dépassé',diff,pct};
+  if(pct>=80)return{level:'warning',status:'À surveiller',diff,pct};
+  return{level:'safe',status:'Dans le budget',diff,pct};
+}
+try{const cacheVersion='357';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
 function mtx(i){return state.transactions.filter(t=>movementMonth(t)===i)}
@@ -118,7 +136,7 @@ function dashboardStatus(i){const p=billsPending(i).length,b=balance(i,false);if
 function incompleteMovements(i){return mtx(i).filter(t=>!(t.description||'').trim()||!(t.category||'').trim())}
 function recurringToGenerate(i){return(state.recurringBills||[]).filter(r=>recurringDue(r,i)&&!state.transactions.some(t=>t.recurringKey===recurringKey(r,i)))}
 function importantUpcoming(i){return forecastData(i).rows.slice(0,3)}
-function budgetAlerts(i){const out=[],lines=state.months[i].budgetLines||[],plannedByCategory={},spentByCategory={};for(const l of lines){if(l.type!=='expense')continue;const k=(l.category||'Dépenses').trim();plannedByCategory[k]=(plannedByCategory[k]||0)+(Number(l.planned)||0)}for(const t of mtx(i).filter(t=>isExpenseType(t))){const k=(t.category||'Dépenses').trim();spentByCategory[k]=(spentByCategory[k]||0)+(Number(t.amount)||0)}for(const [category,planned] of Object.entries(plannedByCategory)){if(planned<=0)continue;const spent=spentByCategory[category]||0,ratio=spent/planned;if(ratio>1)out.push({tone:'danger',text:`${category} : budget dépassé de ${euro(spent-planned)}`});else if(ratio>=.85)out.push({tone:'warning',text:`${category} : ${(ratio*100).toFixed(0)} % du budget utilisé`})}const projected=balance(i,false);if(projected<0)out.unshift({tone:'danger',text:`Solde prévisionnel négatif de ${euro(Math.abs(projected))}`});return out.slice(0,4)}
+function budgetAlerts(i){const out=[],lines=state.months[i].budgetLines||[],plannedByCategory={},spentByCategory={};for(const l of lines){if(l.type!=='expense')continue;const k=(l.category||'Dépenses').trim();plannedByCategory[k]=(plannedByCategory[k]||0)+(Number(l.planned)||0)}for(const t of mtx(i).filter(t=>isExpenseType(t))){const k=(t.category||'Dépenses').trim();spentByCategory[k]=(spentByCategory[k]||0)+(Number(t.amount)||0)}for(const [category,planned] of Object.entries(plannedByCategory)){const spent=spentByCategory[category]||0,stateInfo=budgetState(planned,spent,false);if(stateInfo.level==='danger')out.push({tone:'danger',text:`${category} : budget dépassé de ${euro(Math.abs(stateInfo.diff))}`});else if(stateInfo.level==='warning'||stateInfo.level==='reached')out.push({tone:'warning',text:`${category} : ${stateInfo.level==='reached'?'budget atteint':stateInfo.pct.toFixed(0)+' % du budget utilisé'}`})}const projected=balance(i,false);if(projected<0)out.unshift({tone:'danger',text:`Solde prévisionnel négatif de ${euro(Math.abs(projected))}`});return out.slice(0,4)}
 function currentDayForMonth(i){const n=new Date();return n.getFullYear()===2026&&n.getMonth()===i?n.getDate():1}
 function easterSunday(year){const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31)-1,day=(h+l-7*m+114)%31+1;return new Date(year,month,day)}
 function frenchHolidays(year){const fixed=[[0,1],[4,1],[4,8],[6,14],[7,15],[10,1],[10,11],[11,25]],e=easterSunday(year),dates=fixed.map(([m,d])=>new Date(year,m,d));for(const offset of [1,39,50]){const x=new Date(e);x.setDate(x.getDate()+offset);dates.push(x)}return new Set(dates.map(d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`))}
@@ -136,7 +154,7 @@ function smartInsights(i){
 function navigateTo(target){view=target;render();window.scrollTo({top:0,behavior:'auto'})}
 window.navigateTo=navigateTo;
 function home(){
-  const current=balance(month,true), f=forecastData(month), savingsTotal=savingsBalance(), pending=unpointedMovements(month), week=upcomingWithinDays(month,7), weekOut=week.filter(x=>x.amount<0).reduce((s,x)=>s+Math.abs(x.amount),0), upcoming=f.rows.slice(0,5), insights=smartInsights(month), t=totals(month), p=planned(month), budgetUsed=p.expense>0?Math.min(100,Math.max(0,t.expense/p.expense*100)):0;
+  const current=balance(month,true), f=forecastData(month), savingsTotal=savingsBalance(), pending=unpointedMovements(month), week=upcomingWithinDays(month,7), weekOut=week.filter(x=>x.amount<0).reduce((s,x)=>s+Math.abs(x.amount),0), upcoming=f.rows.slice(0,5), insights=smartInsights(month), t=totals(month), p=planned(month), budgetInfo=budgetState(p.expense,t.expense,false), budgetUsed=Math.min(100,budgetInfo.pct);
   return layout(`${monthbar()}
     <section class="today-head"><div><span>Aujourd’hui</span><h2>${state.months[month].month} 2026</h2><small>Ta situation essentielle en un coup d’œil.</small></div><button class="today-add" data-add>+</button></section>
     <section class="today-grid">
@@ -153,7 +171,7 @@ function home(){
       <div class="today-section-head"><div><span>Analyse</span><h3>À retenir ce mois-ci</h3></div></div>
       <div class="insight-list">${insights.map(a=>`<button class="insight ${a.tone}" data-go="${a.go}"><i>${a.icon}</i><span>${esc(a.text)}</span><b>›</b></button>`).join('')}</div>
     </section>`:''}
-    <section class="today-budget" data-go="budget"><div><span>Budget dépenses</span><strong>${euro(t.expense)} <small>/ ${euro(p.expense)}</small></strong></div><b>${budgetUsed.toFixed(0)} %</b><div class="progress"><i style="width:${budgetUsed}%"></i></div></section>
+    <section class="today-budget budget-${budgetInfo.level}" data-go="budget"><div><span>Budget dépenses</span><strong>${euro(t.expense)} <small>/ ${euro(p.expense)}</small></strong></div><b>${budgetUsed.toFixed(0)} %</b><div class="progress"><i style="width:${budgetUsed}%"></i></div></section>
   `)
 }
 function transactionTypeGroup(t){
@@ -213,26 +231,24 @@ function budget(){
   for(const line of lines){const key=line.type==='income'?'Revenus':line.category;(groups[key]??=[]).push(line)}
   const expenseActual=t.expense, incomeActual=t.income;
   const expenseRemaining=p.expense-expenseActual, incomeGap=incomeActual-p.income;
-  const used=p.expense>0?Math.max(0,expenseActual/p.expense*100):0;
+  const overallBudget=budgetState(p.expense,expenseActual,false), used=overallBudget.pct;
   const groupActual=(name,isIncome)=>tx.filter(x=>isIncome?isIncomeType(x)&&x.category.trim()==='Revenus':isExpenseType(x)&&x.category.trim()===name.trim()).reduce((a,b)=>a+(Number(b.amount)||0),0);
   const cards=`<section class="budget-overview">
-    <div class="budget-kpi primary ${used===0?'budget-zero':used>=100?'budget-danger':used>=80?'budget-warning':'budget-safe'}"><span>Budget prévu</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
+    <div class="budget-kpi primary budget-${overallBudget.level}"><span>Budget prévu</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
     <div class="budget-kpi"><span>Dépensé</span><strong class="negative">${euro(expenseActual)}</strong><small>Dépenses réelles du mois</small></div>
     <div class="budget-kpi"><span>Disponible</span><strong class="${expenseRemaining>=0?'positive':'negative'}">${euro(expenseRemaining)}</strong><small>${expenseRemaining>=0?'Encore disponible':'Budget dépassé'}</small></div>
     <div class="budget-kpi"><span>Écart revenus</span><strong class="${incomeGap>=0?'positive':'negative'}">${incomeGap>=0?'+':'−'} ${euro(Math.abs(incomeGap))}</strong><small>${euro(incomeActual)} reçu sur ${euro(p.income)} prévu</small></div>
   </section>`;
   const prepared=Object.entries(groups).map(([name,items])=>{
-    const isIncome=name==='Revenus', plannedTotal=items.reduce((sum,x)=>sum+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), diff=isIncome?actual-plannedTotal:plannedTotal-actual;
-    const pct=plannedTotal>0?Math.max(0,actual/plannedTotal*100):0;
-    const level=isIncome?'income':pct===0?'zero':pct>=100?'danger':pct>=80?'warning':'safe';
-    const rank=isIncome?4:level==='danger'?0:level==='warning'?1:level==='safe'?2:3;
-    return{name,items,isIncome,plannedTotal,actual,diff,pct,level,rank};
+    const isIncome=name==='Revenus', plannedTotal=items.reduce((sum,x)=>sum+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), info=budgetState(plannedTotal,actual,isIncome);
+    const rank=isIncome?5:info.level==='danger'?0:info.level==='warning'?1:info.level==='reached'?2:info.level==='safe'?3:4;
+    return{name,items,isIncome,plannedTotal,actual,diff:info.diff,pct:info.pct,level:info.level,status:info.status,rank};
   }).sort((a,b)=>a.rank-b.rank||(b.pct-a.pct)||a.name.localeCompare(b.name,'fr'));
   const body=prepared.map(g=>{
-    const status=g.isIncome?'Revenus':g.level==='zero'?'Budget non commencé':g.level==='danger'?'Dépassé':g.level==='warning'?'À surveiller':'Dans le budget';
+    const status=g.status;
     return `<section class="budget-group budget-${g.level} ${g.isIncome?'income-group':''}">
       <div class="budget-group-head"><div><div class="budget-heading-line"><h3>${esc(g.name)}</h3><span class="budget-status">${status}</span></div><small>${g.items.length} poste${g.items.length>1?'s':''}</small></div><div class="budget-group-totals"><span>Prévu <b>${euro(g.plannedTotal)}</b></span><span>Dépensé <b>${euro(g.actual)}</b></span></div></div>
-      <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,g.pct)}%"></i></div><div class="budget-progress-line"><small>${g.pct.toFixed(0)} % consommé</small><small class="${g.diff>=0?'positive':'negative'}">${g.isIncome?(g.diff>=0?'Au-dessus de ':'Sous le prévu de '):(g.diff>=0?'Reste ':'Dépassé de ')}${euro(Math.abs(g.diff))}</small></div></div>
+      <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,g.pct)}%"></i></div><div class="budget-progress-line"><small>${g.pct.toFixed(0)} % consommé</small><small class="${g.diff>=0?'positive':'negative'}">${g.isIncome?(g.diff>=0?'Au-dessus de ':'Sous le prévu de '):(g.level==='reached'?'Budget atteint':g.diff>=0?'Reste ':'Dépassé de ')}${g.level==='reached'?'':euro(Math.abs(g.diff))}</small></div></div>
       <div class="budget-lines">${g.items.map(line=>{const gi=lines.indexOf(line);return `<label class="budget-line"><span><b>${esc(line.label)}</b><small>${g.isIncome?'Revenu prévu':'Montant prévu'}</small></span><div class="budget-input"><input aria-label="Montant prévu pour ${esc(line.label)}" type="number" step="0.01" value="${line.planned}" data-budget="${gi}"><em>€</em></div></label>`}).join('')}</div>
     </section>`
   }).join('');
@@ -688,7 +704,7 @@ function more(){
       ])}
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.5 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.7 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)

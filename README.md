@@ -1,4 +1,4 @@
-KerBudget 3.5.5 Test
+KerBudget 3.5.7 Test
 
 - Confirmation de suppression intégrée à l’application
 - Suppression directe par position avec vérification après sauvegarde
@@ -99,3 +99,9 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Symbole ↻ sur les mouvements issus d’une récurrence.
 - Factures récurrentes et virements d’épargne récurrents séparés dans l’interface.
 - Accès aux virements récurrents depuis la page Épargne.
+
+
+## 3.5.7 Test
+- Correction des états de budget : 0 % = Budget non commencé, 100 % = Budget atteint, rouge uniquement au-delà de 100 %.
+- Tolérance de 0,01 € pour éviter les faux dépassements dus aux arrondis.
+- Même logique utilisée sur Budget, Aujourd’hui et les alertes.
