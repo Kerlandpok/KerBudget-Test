@@ -1,3 +1,11 @@
+# KerBudget 3.5.0 Test
+
+- Barre de budget à 0 % toujours orange.
+- Bilan mensuel harmonisé avec le reste de l’application.
+- Toutes les catégories de dépenses du mois sont affichées.
+- Ajout des virements d’épargne récurrents.
+- Factures et virements regroupés dans Opérations récurrentes.
+
 # KerBudget 3.4.9 Test
 
 - Refonte responsive de la Synthèse annuelle.

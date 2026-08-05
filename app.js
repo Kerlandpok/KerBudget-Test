@@ -1,9 +1,9 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.4.9-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.0-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
-function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
+function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills.map(r=>({...r,type:r.type||'bill',fromAccount:r.fromAccount||'checking',toAccount:r.toAccount||(r.type==='savings_transfer'?'savings':null)})):[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
 function writeBackups(v){localStorage.setItem(BACKUP_KEY,JSON.stringify(v.slice(0,MAX_BACKUPS)))}
 function createBackup(reason='automatique'){try{const raw=localStorage.getItem(KEY);if(!raw)return;const data=JSON.parse(raw),signature=JSON.stringify(data.transactions||[]);let b=readBackups();if(b[0]&&b[0].signature===signature)return;b.unshift({id:'b'+Date.now(),date:new Date().toISOString(),reason,signature,data});writeBackups(b)}catch(e){console.warn(e)}}
@@ -215,7 +215,7 @@ function budget(){
   const used=p.expense>0?Math.max(0,expenseActual/p.expense*100):0;
   const groupActual=(name,isIncome)=>tx.filter(x=>isIncome?isIncomeType(x)&&x.category.trim()==='Revenus':isExpenseType(x)&&x.category.trim()===name.trim()).reduce((a,b)=>a+(Number(b.amount)||0),0);
   const cards=`<section class="budget-overview">
-    <div class="budget-kpi primary"><span>Budget prévu</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
+    <div class="budget-kpi primary ${used===0?'budget-zero':used>=100?'budget-danger':used>=80?'budget-warning':'budget-safe'}"><span>Budget prévu</span><strong>${euro(p.expense)}</strong><small>${used.toFixed(0)} % consommé</small><div class="progress"><i style="width:${Math.min(100,used)}%"></i></div></div>
     <div class="budget-kpi"><span>Dépensé</span><strong class="negative">${euro(expenseActual)}</strong><small>Dépenses réelles du mois</small></div>
     <div class="budget-kpi"><span>Disponible</span><strong class="${expenseRemaining>=0?'positive':'negative'}">${euro(expenseRemaining)}</strong><small>${expenseRemaining>=0?'Encore disponible':'Budget dépassé'}</small></div>
     <div class="budget-kpi"><span>Écart revenus</span><strong class="${incomeGap>=0?'positive':'negative'}">${incomeGap>=0?'+':'−'} ${euro(Math.abs(incomeGap))}</strong><small>${euro(incomeActual)} reçu sur ${euro(p.income)} prévu</small></div>
@@ -223,12 +223,12 @@ function budget(){
   const prepared=Object.entries(groups).map(([name,items])=>{
     const isIncome=name==='Revenus', plannedTotal=items.reduce((sum,x)=>sum+(Number(x.planned)||0),0), actual=groupActual(name,isIncome), diff=isIncome?actual-plannedTotal:plannedTotal-actual;
     const pct=plannedTotal>0?Math.max(0,actual/plannedTotal*100):0;
-    const level=isIncome?'income':pct>=100?'danger':pct>=80?'warning':'safe';
-    const rank=isIncome?3:level==='danger'?0:level==='warning'?1:2;
+    const level=isIncome?'income':pct===0?'zero':pct>=100?'danger':pct>=80?'warning':'safe';
+    const rank=isIncome?4:level==='danger'?0:level==='warning'?1:level==='safe'?2:3;
     return{name,items,isIncome,plannedTotal,actual,diff,pct,level,rank};
   }).sort((a,b)=>a.rank-b.rank||(b.pct-a.pct)||a.name.localeCompare(b.name,'fr'));
   const body=prepared.map(g=>{
-    const status=g.isIncome?'Revenus':g.level==='danger'?'Dépassé':g.level==='warning'?'À surveiller':'Dans le budget';
+    const status=g.isIncome?'Revenus':g.level==='zero'?'Budget non commencé':g.level==='danger'?'Dépassé':g.level==='warning'?'À surveiller':'Dans le budget';
     return `<section class="budget-group budget-${g.level} ${g.isIncome?'income-group':''}">
       <div class="budget-group-head"><div><div class="budget-heading-line"><h3>${esc(g.name)}</h3><span class="budget-status">${status}</span></div><small>${g.items.length} poste${g.items.length>1?'s':''}</small></div><div class="budget-group-totals"><span>Prévu <b>${euro(g.plannedTotal)}</b></span><span>Dépensé <b>${euro(g.actual)}</b></span></div></div>
       <div class="budget-progress"><div class="progress"><i style="width:${Math.min(100,g.pct)}%"></i></div><div class="budget-progress-line"><small>${g.pct.toFixed(0)} % consommé</small><small class="${g.diff>=0?'positive':'negative'}">${g.isIncome?(g.diff>=0?'Au-dessus de ':'Sous le prévu de '):(g.diff>=0?'Reste ':'Dépassé de ')}${euro(Math.abs(g.diff))}</small></div></div>
@@ -322,7 +322,7 @@ function savings(){
       <div><span>Mouvements non pointés</span><b>${euro(unpointed.reduce((s,t)=>s+savingsImpact(t),0))}</b></div>
       <div class="savings-detail-estimate"><span>Épargne estimée après pointage</span><b>${euro(estimated)}</b></div>
     </section>
-    <div class="section-title"><h2>Tous les mouvements d’épargne</h2><span class="pill">${allTransfers.length}</span></div>
+    <div class="section-title"><h2>Tous les mouvements d’épargne</h2><div class="section-actions"><span class="pill">${allTransfers.length}</span><button class="btn secondary" data-recurring-savings>+ Récurrent</button></div></div>
     ${savingsMovementList(allTransfers)}
   `)
 }
@@ -338,77 +338,98 @@ function recurringDue(r,m){
 }
 function recurringKey(r,m){return `${r.id}-2026-${String(m+1).padStart(2,'0')}`}
 function ensureRecurringForMonth(m,notify=false){
-  let created=0;
+  let created=0,bills=0,savings=0;
   for(const r of state.recurringBills||[]){
     if(!recurringDue(r,m))continue;
     const key=recurringKey(r,m);
     if(state.transactions.some(t=>t.recurringKey===key))continue;
+    const recurringType=r.type||'bill',isSavings=recurringType==='savings_transfer';
     state.transactions.push(normalizeMovement({
       id:'rec-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
       month:m,budgetMonth:m,day:Math.min(31,Math.max(1,Number(r.day)||1)),
-      description:r.name,amount:Number(r.amount)||0,category:r.category||'Dépenses',
-      subcategory:r.subcategory||'',pointed:false,type:'bill',
-      fromAccount:'checking',toAccount:null,recurringId:r.id,recurringKey:key
+      description:r.name,amount:Number(r.amount)||0,category:r.category||(isSavings?'Épargne':'Dépenses'),
+      subcategory:r.subcategory||'',pointed:false,type:recurringType,
+      fromAccount:isSavings?(r.fromAccount||'checking'):'checking',toAccount:isSavings?(r.toAccount||'savings'):null,
+      recurringId:r.id,recurringKey:key
     }));
-    created++;
+    created++;if(isSavings)savings++;else bills++;
   }
-  if(created){save('génération factures récurrentes');if(notify)alert(`${created} facture${created>1?'s':''} générée${created>1?'s':''}.`)}
-  else if(notify)alert('Aucune nouvelle facture à générer pour ce mois.');
+  if(created){
+    save('génération opérations récurrentes');
+    if(notify){const parts=[];if(bills)parts.push(`${bills} facture${bills>1?'s':''}`);if(savings)parts.push(`${savings} virement${savings>1?'s':''} d’épargne`);alert(parts.join(' et ')+' généré'+(created>1?'s':'')+'.')}
+  } else if(notify)alert('Aucune nouvelle opération récurrente à générer pour ce mois.');
   return created;
 }
 function recurring(){
   const list=(state.recurringBills||[]).slice().sort((a,b)=>(a.day||1)-(b.day||1));
   return layout(`${monthbar()}
-    <div class="section-title"><h2>Factures récurrentes</h2><button class="btn" data-recurring-add>+ Ajouter</button></div>
+    <div class="section-title"><div><h2>Opérations récurrentes</h2><small>Factures et virements d’épargne automatiques.</small></div><button class="btn" data-recurring-add>+ Ajouter</button></div>
     <div class="recurring-actions"><button class="btn secondary" data-recurring-generate>Générer pour ${state.months[month].month}</button></div>
-    <div class="list">${list.length?list.map(r=>`
-      <div class="row recurring-row" data-recurring-edit="${esc(r.id)}">
-        <div>
-          <div class="title">${r.active?'✓ ':'⏸ '}${esc(r.name)}</div>
-          <div class="sub">Le ${r.day} · ${(RECUR_FREQ.find(f=>f.id===r.frequency)||{}).label||'Mensuelle'} · ${esc(r.category||'')}</div>
-        </div>
-        <div class="amount">${euro(r.amount)}</div>
-      </div>`).join(''):'<div class="empty">Aucune facture récurrente.</div>'}</div>`);
+    <div class="list recurring-list">${list.length?list.map(r=>{
+      const isSavings=(r.type||'bill')==='savings_transfer';
+      const detail=isSavings?`${accountLabel(r.fromAccount||'checking')} → ${accountLabel(r.toAccount||'savings')}`:esc(r.category||'');
+      return `<button type="button" class="recurring-card" data-recurring-edit="${esc(r.id)}">
+        <span class="recurring-icon ${isSavings?'savings':''}">${isSavings?'◆':'▤'}</span>
+        <span class="recurring-copy"><b>${r.active?'':'⏸ '}${esc(r.name)}</b><small>Le ${r.day} · ${(RECUR_FREQ.find(f=>f.id===r.frequency)||{}).label||'Mensuelle'} · ${detail}</small></span>
+        <strong class="${isSavings?'positive':'negative'}">${isSavings?(r.fromAccount==='savings'?'−':'+'):'−'}${euro(r.amount)}</strong>
+      </button>`}).join(''):'<div class="empty">Aucune opération récurrente.</div>'}</div>`);
 }
-function editRecurring(id){
+function editRecurring(id,presetType=null){
   const old=id?(state.recurringBills||[]).find(x=>x.id===id):null;
-  const r=old||{id:'rb'+Date.now(),name:'',amount:0,category:'Habitation',subcategory:'',day:1,frequency:'monthly',startMonth:0,endMonth:11,active:true,variable:false};
+  const r=old||{id:'rb'+Date.now(),type:presetType||'bill',name:'',amount:0,category:'Habitation',subcategory:'',day:1,frequency:'monthly',startMonth:0,endMonth:11,active:true,variable:false,fromAccount:'checking',toAccount:'savings'};
+  r.type=r.type||'bill';
   const cats=Object.keys(state.categories);
   document.querySelector('#modal').hidden=false;
-  document.querySelector('#modal').innerHTML=`<div class="sheet"><h2>${old?'Modifier':'Nouvelle'} facture récurrente</h2>
-    <div class="field"><label>Nom</label><input id="rname" value="${esc(r.name)}"></div>
-    <div class="field"><label>Montant (€)</label><input id="ramount" type="number" step="0.01" value="${r.amount}"></div>
-    <div class="field"><label>Jour d’échéance</label><input id="rday" type="number" min="1" max="31" value="${r.day}"></div>
-    <div class="field"><label>Fréquence</label><select id="rfreq">${RECUR_FREQ.map(f=>`<option value="${f.id}" ${f.id===r.frequency?'selected':''}>${f.label}</option>`).join('')}</select></div>
-    <div class="field"><label>Début</label><select id="rstart">${state.months.map((m,i)=>`<option value="${i}" ${i===r.startMonth?'selected':''}>${m.month}</option>`).join('')}</select></div>
-    <div class="field"><label>Fin</label><select id="rend">${state.months.map((m,i)=>`<option value="${i}" ${i===r.endMonth?'selected':''}>${m.month}</option>`).join('')}</select></div>
-    <div class="field"><label>Catégorie</label><select id="rcat">${cats.map(c=>`<option ${c===r.category?'selected':''}>${esc(c)}</option>`).join('')}</select></div>
-    <div class="field"><label>Sous-catégorie</label><select id="rsub"></select></div>
-    <label class="check"><input id="ractive" type="checkbox" ${r.active?'checked':''}> Active</label>
-    <label class="check"><input id="rvariable" type="checkbox" ${r.variable?'checked':''}> Montant variable</label>
-    <div class="actions">${old?'<button class="btn danger" id="rdel">Supprimer</button>':''}<button class="btn secondary" id="rcancel">Annuler</button><button class="btn" id="rok">Enregistrer</button></div></div>`;
-  const cat=document.querySelector('#rcat'),sub=document.querySelector('#rsub');
-  function fillSubs(){const ls=state.categories[cat.value]||[];sub.innerHTML='<option value="">—</option>'+ls.map(x=>`<option ${x===r.subcategory?'selected':''}>${esc(x)}</option>`).join('')}
-  cat.onchange=fillSubs;fillSubs();
+  document.querySelector('#modal').innerHTML=`<div class="sheet recurring-sheet"><div class="form-head"><div><span>${old?'MODIFICATION':'NOUVEAU'}</span><h2>${old?'Modifier':'Nouvelle'} opération récurrente</h2></div><button class="sheet-close" id="rcancel" aria-label="Fermer">×</button></div>
+    <div class="type-selector recurring-type"><button type="button" data-rtype="bill" class="${r.type==='bill'?'active':''}"><b>▤</b><span>Facture</span></button><button type="button" data-rtype="savings_transfer" class="${r.type==='savings_transfer'?'active':''}"><b>◆</b><span>Épargne</span></button></div>
+    <input id="rtype" type="hidden" value="${esc(r.type)}">
+    <div class="field primary-field"><label>Nom</label><input id="rname" value="${esc(r.name)}" placeholder="Ex. EDF ou Virement Livret A"></div>
+    <div class="amount-field"><label>Montant</label><div><input id="ramount" type="number" inputmode="decimal" step="0.01" min="0" value="${Math.abs(Number(r.amount)||0)}"><span>€</span></div></div>
+    <div class="form-grid two"><div class="field"><label>Jour d’échéance</label><input id="rday" type="number" inputmode="numeric" min="1" max="31" value="${r.day}"></div><div class="field"><label>Fréquence</label><select id="rfreq">${RECUR_FREQ.map(f=>`<option value="${f.id}" ${f.id===r.frequency?'selected':''}>${f.label}</option>`).join('')}</select></div></div>
+    <div class="form-grid two"><div class="field"><label>Début</label><select id="rstart">${state.months.map((m,i)=>`<option value="${i}" ${i===r.startMonth?'selected':''}>${m.month}</option>`).join('')}</select></div><div class="field"><label>Fin</label><select id="rend">${state.months.map((m,i)=>`<option value="${i}" ${i===r.endMonth?'selected':''}>${m.month}</option>`).join('')}</select></div></div>
+    <div id="rbillFields"><div class="field"><label>Catégorie</label><select id="rcat">${cats.map(c=>`<option ${c===r.category?'selected':''}>${esc(c)}</option>`).join('')}</select></div><div class="field"><label>Sous-catégorie</label><select id="rsub"></select></div><label class="check"><input id="rvariable" type="checkbox" ${r.variable?'checked':''}> Montant variable</label></div>
+    <div id="rsavingsFields"><div class="field"><label>Compte de départ</label><select id="rfrom">${ACCOUNTS.map(x=>`<option value="${x.id}" ${x.id===(r.fromAccount||'checking')?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div><div class="field"><label>Compte d’arrivée</label><select id="rto">${ACCOUNTS.map(x=>`<option value="${x.id}" ${x.id===(r.toAccount||'savings')?'selected':''}>${esc(x.label)}</option>`).join('')}</select></div><p class="form-note">Le virement sera créé à la date choisie et apparaîtra dans À venir puis dans Épargne.</p></div>
+    <label class="point-switch"><div><b>Opération active</b><small>Générée automatiquement selon la fréquence</small></div><span class="switch"><input id="ractive" type="checkbox" ${r.active?'checked':''}><span></span></span></label>
+    ${old?'<div class="secondary-actions"><button class="btn danger" id="rdel">Supprimer</button></div>':''}<div class="form-save"><button class="btn" id="rok">Enregistrer</button></div></div>`;
+  const cat=document.querySelector('#rcat'),sub=document.querySelector('#rsub'),type=document.querySelector('#rtype');
+  function fillSubs(){if(!cat||!sub)return;const ls=state.categories[cat.value]||[];sub.innerHTML='<option value="">—</option>'+ls.map(x=>`<option ${x===r.subcategory?'selected':''}>${esc(x)}</option>`).join('')}
+  function syncRecurringType(){const savings=type.value==='savings_transfer';document.querySelector('#rbillFields').hidden=savings;document.querySelector('#rsavingsFields').hidden=!savings;document.querySelectorAll('[data-rtype]').forEach(b=>b.classList.toggle('active',b.dataset.rtype===type.value))}
+  if(cat){cat.onchange=fillSubs;fillSubs()}syncRecurringType();
+  document.querySelectorAll('[data-rtype]').forEach(b=>b.onclick=()=>{type.value=b.dataset.rtype;syncRecurringType()});
   document.querySelector('#rcancel').onclick=closeModal;
   document.querySelector('#rok').onclick=()=>{
     const start=+document.querySelector('#rstart').value,end=+document.querySelector('#rend').value;
     if(end<start){alert('La date de fin doit être après la date de début.');return}
-    r.name=document.querySelector('#rname').value.trim();
-    if(!r.name){alert('Indique un nom.');return}
-    r.amount=Math.abs(+document.querySelector('#ramount').value||0);
-    r.day=Math.min(31,Math.max(1,+document.querySelector('#rday').value||1));
-    r.frequency=document.querySelector('#rfreq').value;r.startMonth=start;r.endMonth=end;
-    r.category=cat.value;r.subcategory=sub.value;r.active=document.querySelector('#ractive').checked;r.variable=document.querySelector('#rvariable').checked;
-    if(!old)state.recurringBills.push(r);
-    save('facture récurrente');closeModal();render()
+    r.name=document.querySelector('#rname').value.trim();if(!r.name){alert('Indique un nom.');return}
+    r.type=type.value;r.amount=Math.abs(+document.querySelector('#ramount').value||0);r.day=Math.min(31,Math.max(1,+document.querySelector('#rday').value||1));r.frequency=document.querySelector('#rfreq').value;r.startMonth=start;r.endMonth=end;r.active=document.querySelector('#ractive').checked;
+    if(r.type==='savings_transfer'){
+      r.fromAccount=document.querySelector('#rfrom').value;r.toAccount=document.querySelector('#rto').value;
+      if(r.fromAccount===r.toAccount){alert('Le compte de départ et le compte d’arrivée doivent être différents.');return}
+      r.category='Épargne';r.subcategory='';r.variable=false;
+    }else{
+      r.category=cat.value;r.subcategory=sub.value;r.variable=document.querySelector('#rvariable').checked;r.fromAccount='checking';r.toAccount=null;
+    }
+    if(!old)state.recurringBills.push(r);save('opération récurrente');closeModal();render();showToast('Opération récurrente enregistrée')
   };
-  const del=document.querySelector('#rdel');
-  if(del)del.onclick=()=>{if(confirm('Supprimer cette facture récurrente ? Les mouvements déjà générés resteront conservés.')){state.recurringBills=state.recurringBills.filter(x=>x.id!==r.id);save('suppression facture récurrente');closeModal();render()}}
+  const del=document.querySelector('#rdel');if(del)del.onclick=()=>{if(confirm('Supprimer cette opération récurrente ? Les mouvements déjà générés resteront conservés.')){state.recurringBills=state.recurringBills.filter(x=>x.id!==r.id);save('suppression opération récurrente');closeModal();render();showToast('Opération récurrente supprimée')}};
 }
-function monthReport(i){const x=monthMetrics(i),t={income:x.income,expense:x.expense,pincome:x.pincome,pexpense:x.pexpense},p={income:x.plannedIncome,expense:x.plannedExpense},pending=mtx(i).filter(m=>!m.pointed),prev=i>0?monthMetrics(i-1):null,cats={};for(const m of mtx(i).filter(m=>isExpenseType(m)&&m.pointed))cats[m.category]=(cats[m.category]||0)+Number(m.amount||0);const diff=(a,b)=>({value:a-b,pct:b?((a-b)/b*100):0});return{t,p,pending,prev,savings:x.savings,result:x.checkingVariation,top:Object.entries(cats).sort((a,b)=>b[1]-a[1]).slice(0,5),incomeDiff:prev?diff(x.income,prev.income):null,expenseDiff:prev?diff(x.expense,prev.expense):null}}
+function monthReport(i){
+  const x=monthMetrics(i),t={income:x.income,expense:x.expense,pincome:x.pincome,pexpense:x.pexpense},p={income:x.plannedIncome,expense:x.plannedExpense},pending=mtx(i).filter(m=>!m.pointed),prev=i>0?monthMetrics(i-1):null,cats={};
+  for(const m of mtx(i).filter(m=>isExpenseType(m))){const name=(m.category||'Sans catégorie').trim()||'Sans catégorie';cats[name]=(cats[name]||0)+Number(m.amount||0)}
+  const diff=(a,b)=>({value:a-b,pct:b?((a-b)/b*100):0});
+  return{t,p,pending,prev,savings:x.savings,result:x.checkingVariation,categories:Object.entries(cats).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'fr')),incomeDiff:prev?diff(x.income,prev.income):null,expenseDiff:prev?diff(x.expense,prev.expense):null}
+}
 function diffBadge(d,invert=false){if(!d)return'<span class="trend neutral">Premier mois</span>';const good=invert?d.value<=0:d.value>=0;return`<span class="trend ${good?'good':'bad'}">${d.value>=0?'+':''}${euro(d.value)} · ${d.pct>=0?'+':''}${d.pct.toFixed(0)} %</span>`}
-function monthlyReport(){const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour';return layout(`${monthbar()}<div class="section-title"><h2>Bilan • ${state.months[month].month}</h2><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div><div class="report-grid"><section class="report-card"><span>Revenus</span><strong class="positive">${euro(r.t.income)}</strong>${diffBadge(r.incomeDiff)}</section><section class="report-card"><span>Dépenses réelles</span><strong class="negative">${euro(r.t.expense)}</strong>${diffBadge(r.expenseDiff,true)}</section><section class="report-card"><span>Épargne</span><strong>${euro(r.savings)}</strong><small>Virements pointés</small></section><section class="report-card highlight"><span>Résultat du mois</span><strong class="${r.result>=0?'positive':'negative'}">${euro(r.result)}</strong><small>Revenus − dépenses − épargne</small></section></div><div class="section-title"><h2>Situation du mois</h2></div><section class="report-summary"><div><span>Budget prévu</span><b>${euro(r.p.expense)}</b></div><div><span>Dépenses pointées</span><b>${euro(r.t.pexpense)}</b></div><div><span>Reste sur budget</span><b>${euro(r.p.expense-r.t.expense)}</b></div><div><span>Opérations non pointées</span><b>${r.pending.length}</b></div></section>${r.pending.length?`<div class="section-title"><h2>Encore à pointer</h2><button class="btn secondary" data-go="transactions">Voir</button></div>${txList(r.pending.slice(0,6))}`:''}<div class="section-title"><h2>Dépenses par catégorie</h2></div><div class="list">${r.top.length?r.top.map(([c,v])=>`<div class="row"><div><div class="title">${esc(c)}</div><div class="progress"><i style="width:${Math.min(100,v/(r.t.expense||1)*100)}%"></i></div></div><div class="amount">${euro(v)}</div></div>`).join(''):'<div class="empty">Aucune dépense pointée.</div>'}</div>`)}
+function reportPendingList(items){return `<div class="report-pending-list">${items.map(t=>{const date=`${String(t.day||1).padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/2026`;return `<button type="button" class="report-pending-card" data-edit="${esc(t.id)}"><span class="report-pending-icon">${inferMovementType(t)==='bill'?'▤':'−'}</span><span><b>${esc(t.description||t.subcategory||'Mouvement')}</b><small>${date} · ${esc(t.subcategory||t.category||'Sans catégorie')}</small></span><strong class="negative">−${euro(Math.abs(Number(t.amount)||0))}</strong></button>`}).join('')}</div>`}
+function monthlyReport(){
+  const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour',max=Math.max(...r.categories.map(x=>x[1]),1);
+  return layout(`${monthbar()}<div class="section-title report-title"><div><h2>Bilan • ${state.months[month].month}</h2><small>Vue complète du mois, avec toutes les catégories utilisées.</small></div><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div>
+    <div class="report-grid"><section class="report-card"><span>Revenus</span><strong class="positive">${euro(r.t.income)}</strong>${diffBadge(r.incomeDiff)}</section><section class="report-card"><span>Dépenses réelles</span><strong class="negative">${euro(r.t.expense)}</strong>${diffBadge(r.expenseDiff,true)}</section><section class="report-card"><span>Épargne nette</span><strong class="${r.savings>=0?'positive':'negative'}">${r.savings>=0?'+':'−'}${euro(Math.abs(r.savings))}</strong><small>Virements pointés</small></section><section class="report-card highlight"><span>Variation du compte courant</span><strong class="${r.result>=0?'positive':'negative'}">${euro(r.result)}</strong><small>Revenus − dépenses − épargne nette</small></section></div>
+    <div class="section-title"><h2>Situation du mois</h2></div><section class="report-summary"><div><span>Budget prévu</span><b>${euro(r.p.expense)}</b></div><div><span>Dépenses pointées</span><b>${euro(r.t.pexpense)}</b></div><div><span>Reste sur budget</span><b class="${r.p.expense-r.t.expense>=0?'positive':'negative'}">${euro(r.p.expense-r.t.expense)}</b></div><div><span>Opérations non pointées</span><b>${r.pending.length}</b></div></section>
+    ${r.pending.length?`<div class="section-title"><h2>Encore à pointer</h2><button class="btn secondary" data-go="transactions">Voir tout</button></div>${reportPendingList(r.pending.slice(0,6))}`:''}
+    <div class="section-title"><div><h2>Dépenses par catégorie</h2><small>${r.categories.length} catégorie${r.categories.length>1?'s':''} utilisée${r.categories.length>1?'s':''} ce mois-ci</small></div></div>
+    <section class="report-category-list">${r.categories.length?r.categories.map(([c,v])=>`<div class="report-category-row"><span><b>${esc(c)}</b><small>${(v/(r.t.expense||1)*100).toFixed(1)} % des dépenses</small></span><strong>${euro(v)}</strong><div class="progress"><i style="width:${Math.min(100,v/max*100)}%"></i></div></div>`).join(''):'<div class="empty">Aucune dépense ce mois-ci.</div>'}</section>`)
+}
 
 function forecastEvents(i){
   const events=[];
@@ -428,9 +449,9 @@ function forecastEvents(i){
       const key=recurringKey(r,sourceMonth);
       if(state.transactions.some(t=>t.recurringKey===key))continue;
       let d=new Date(2026,sourceMonth,Math.min(new Date(2026,sourceMonth+1,0).getDate(),Math.max(1,Number(r.day)||1))),shifted=false;
-      if(state.forecastSettings?.shiftBills&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}
+      const shiftRecurring=(r.type||'bill')==='savings_transfer'?state.forecastSettings?.shiftSavings:state.forecastSettings?.shiftBills;if(shiftRecurring&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}
       if(d.getMonth()!==i||d.getFullYear()!==2026)continue;
-      events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:-Math.abs(Number(r.amount)||0),kind:'planned',source:'recurring',shifted,estimated:false});
+      const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',shifted,estimated:false});
     }
   }
   return events.sort((a,b)=>a.day-b.day||a.title.localeCompare(b.title,'fr'));
@@ -603,7 +624,7 @@ function diagnostic(){
   return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
     <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
     <section class="diagnostic-grid">
-      <div><span>Version</span><strong>3.4.2 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Version</span><strong>3.5.0 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
       <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
       <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
       <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
@@ -646,7 +667,7 @@ function more(){
       ])}
       ${section('management','🗂️','Gestion',[
         item('categories','🏷️','Catégories et sous-catégories','Ajouter, renommer ou supprimer.','classement'),
-        item('recurring','🔁','Factures récurrentes','Gérer les échéances automatiques.','mensuel trimestriel annuel'),
+        item('recurring','🔁','Opérations récurrentes','Factures et virements d’épargne automatiques.','mensuel trimestriel annuel épargne'),
         backupItem
       ])}
       ${section('tools','🛠️','Outils',[
@@ -655,14 +676,14 @@ function more(){
       ])}
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.4.9 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.0 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
 function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=state.transactions.find(x=>x.id===b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit));
-let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();
+let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring();let rsa=document.querySelector('[data-recurring-savings]');if(rsa)rsa.onclick=()=>editRecurring(null,'savings_transfer');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
 let rd=document.querySelector('[data-run-diagnostic]');if(rd)rd.onclick=()=>{analyzeKerBudget();render()};let dd=document.querySelector('[data-download-diagnostic]');if(dd)dd.onclick=downloadDiagnosticReport;
@@ -744,4 +765,4 @@ function showToast(message){let old=document.querySelector('.app-toast');if(old)
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
 function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
 function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=349').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=350').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
