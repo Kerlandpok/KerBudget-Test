@@ -1,3 +1,11 @@
+# KerBudget 3.6.0 Test
+
+- Gestion multi-années et archives.
+- Préparation de la nouvelle année avec report du solde pointé au 31 décembre.
+- Copie des budgets, conservation des catégories, récurrences et paramètres.
+- Sauvegarde locale automatique avant transition.
+- Sélecteur d’année accessible depuis les pages mensuelles et Plus.
+
 KerBudget 3.5.7 Test
 
 - Confirmation de suppression intégrée à l’application

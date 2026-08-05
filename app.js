@@ -1,9 +1,51 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.8-test', MAX_BACKUPS=5;
-let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.6.0-test', BASE_YEAR=2026, MAX_BACKUPS=5;
+let state=load(), selectedYear=Number(state.activeYear)||BASE_YEAR, view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===selectedYear?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
-function normalizeState(raw){const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};if(!raw||typeof raw!=='object')raw=base;return {...base,...raw,months:Array.isArray(raw.months)?raw.months:base.months,transactions:Array.isArray(raw.transactions)?raw.transactions:base.transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills.map(r=>({...r,type:r.type||'bill',fromAccount:r.fromAccount||'checking',toAccount:r.toAccount||(r.type==='savings_transfer'?'savings':null)})):[],recurringSkips:Array.isArray(raw.recurringSkips)?raw.recurringSkips:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}}}
+function normalizeState(raw){
+  const base=cloneData(D),defaults={shiftBills:true,shiftIncome:true,shiftSavings:true,useFrenchHolidays:true,expenseDelay:2};
+  if(!raw||typeof raw!=='object')raw=base;
+  const legacyMonths=Array.isArray(raw.months)?raw.months:base.months;
+  const years=raw.years&&typeof raw.years==='object'?cloneData(raw.years):{[BASE_YEAR]:{months:cloneData(legacyMonths),createdAt:new Date().toISOString()}};
+  if(!years[BASE_YEAR])years[BASE_YEAR]={months:cloneData(legacyMonths),createdAt:new Date().toISOString()};
+  Object.keys(years).forEach(y=>{if(!Array.isArray(years[y]?.months))years[y]={...(years[y]||{}),months:cloneData(base.months)}});
+  const prepared=Object.keys(years).map(Number).filter(Number.isFinite).sort((a,b)=>a-b);
+  const activeYear=Number(raw.activeYear)||prepared[prepared.length-1]||BASE_YEAR;
+  if(!years[activeYear])years[activeYear]={months:cloneData(base.months),createdAt:new Date().toISOString()};
+  const transactions=(Array.isArray(raw.transactions)?raw.transactions:base.transactions).map(t=>({...t,year:Number(t.year)||BASE_YEAR}));
+  return {...base,...raw,activeYear,years,months:years[activeYear].months,transactions,recurringBills:Array.isArray(raw.recurringBills)?raw.recurringBills.map(r=>({...r,type:r.type||'bill',fromAccount:r.fromAccount||'checking',toAccount:r.toAccount||(r.type==='savings_transfer'?'savings':null)})):[],recurringSkips:Array.isArray(raw.recurringSkips)?raw.recurringSkips:[],categories:raw.categories&&typeof raw.categories==='object'?raw.categories:base.categories,forecastSettings:{...defaults,...(raw.forecastSettings||{})},meta:{...(raw.meta||{}),appVersion:APP_VERSION,lastOpenedAt:new Date().toISOString()}};
+}
+function syncActiveYear(){
+  if(!state.years)state.years={};
+  state.activeYear=selectedYear;
+  state.years[selectedYear]={...(state.years[selectedYear]||{}),months:state.months,updatedAt:new Date().toISOString()};
+}
+function availableYears(){return Object.keys(state.years||{}).map(Number).filter(Number.isFinite).sort((a,b)=>b-a)}
+function switchYear(year){
+  const y=Number(year);if(!state.years?.[y])return;
+  syncActiveYear();selectedYear=y;state.activeYear=y;state.months=state.years[y].months;month=Math.max(0,Math.min(11,new Date().getFullYear()===y?new Date().getMonth():month));
+  save('changement année');render();
+}
+function prepareYear(year,interactive=true){
+  const y=Number(year),previous=y-1;if(!Number.isFinite(y)||state.years?.[y]){if(interactive)alert(`L’année ${y} est déjà prête.`);return false}
+  if(!state.years?.[previous]){if(interactive)alert(`Prépare d’abord l’année ${previous}.`);return false}
+  createBackup(`avant préparation ${y}`);
+  const oldYear=selectedYear,oldMonth=month;switchYearSilently(previous);
+  const closingBalance=balance(11,true);
+  const previousMonths=state.months;
+  const newMonths=cloneData(previousMonths).map((m,i)=>({...m,openingBalance:i===0?closingBalance:0,budgetLines:(m.budgetLines||[]).map(l=>({...l}))}));
+  state.years[y]={months:newMonths,createdAt:new Date().toISOString(),carriedFrom:previous,openingBalance:closingBalance};
+  selectedYear=y;state.activeYear=y;state.months=newMonths;month=0;
+  syncActiveYear();save(`préparation année ${y}`);ensureRecurringForMonth(0);
+  if(interactive)showToast(`Année ${y} préparée`);
+  return true;
+}
+function switchYearSilently(year){syncActiveYear();selectedYear=Number(year);state.activeYear=selectedYear;state.months=state.years[selectedYear].months}
+function maybeOfferNewYear(){
+  const current=new Date().getFullYear(),max=Math.max(...availableYears(),BASE_YEAR);
+  if(current>max&&!state.years?.[current])setTimeout(()=>{if(confirm(`Nouvelle année détectée (${current}). Préparer ${current} avec report du solde et copie des budgets ?`)){prepareYear(current);render()}},350);
+}
 function readBackups(){try{return JSON.parse(localStorage.getItem(BACKUP_KEY))||[]}catch(e){return[]}}
 function writeBackups(v){localStorage.setItem(BACKUP_KEY,JSON.stringify(v.slice(0,MAX_BACKUPS)))}
 function createBackup(reason='automatique'){try{const raw=localStorage.getItem(KEY);if(!raw)return;const data=JSON.parse(raw),signature=JSON.stringify(data.transactions||[]);let b=readBackups();if(b[0]&&b[0].signature===signature)return;b.unshift({id:'b'+Date.now(),date:new Date().toISOString(),reason,signature,data});writeBackups(b)}catch(e){console.warn(e)}}
@@ -17,6 +59,7 @@ function freeStorageForSave(){
   }catch(e){console.warn('Nettoyage des sauvegardes impossible',e)}
 }
 function save(reason='modification'){
+  syncActiveYear();
   if(localStorage.getItem(KEY))createBackup(reason);
   state.meta={...(state.meta||{}),appVersion:APP_VERSION,lastSavedAt:new Date().toISOString()};
   const raw=JSON.stringify(state);
@@ -33,8 +76,8 @@ function save(reason='modification'){
   }
 }
 function downloadBackup(){createBackup('export manuel');const blob=new Blob([JSON.stringify({format:'KerBudget Backup',version:APP_VERSION,exportedAt:new Date().toISOString(),state},null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='KerBudget-sauvegarde-'+new Date().toISOString().slice(0,10)+'.json';a.click();URL.revokeObjectURL(a.href)}
-function importBackupFile(file){const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result),incoming=p.state||p;if(!Array.isArray(incoming.transactions))throw 0;createBackup('avant import');state=normalizeState(incoming);localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde importée.')}catch(e){alert('Fichier de sauvegarde invalide.')}};r.readAsText(file)}
-function recoverLatestBackup(){const b=readBackups();if(!b.length){alert('Aucune sauvegarde disponible.');return}if(confirm('Restaurer la sauvegarde du '+new Date(b[0].date).toLocaleString('fr-FR')+' ?')){state=normalizeState(cloneData(b[0].data));localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde restaurée.')}}
+function importBackupFile(file){const r=new FileReader();r.onload=()=>{try{const p=JSON.parse(r.result),incoming=p.state||p;if(!Array.isArray(incoming.transactions))throw 0;createBackup('avant import');state=normalizeState(incoming);selectedYear=state.activeYear;state.months=state.years[selectedYear].months;localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde importée.')}catch(e){alert('Fichier de sauvegarde invalide.')}};r.readAsText(file)}
+function recoverLatestBackup(){const b=readBackups();if(!b.length){alert('Aucune sauvegarde disponible.');return}if(confirm('Restaurer la sauvegarde du '+new Date(b[0].date).toLocaleString('fr-FR')+' ?')){state=normalizeState(cloneData(b[0].data));selectedYear=state.activeYear;state.months=state.years[selectedYear].months;localStorage.setItem(KEY,JSON.stringify(state));render();alert('Sauvegarde restaurée.')}}
 migrateMovements();
 window.addEventListener('beforeunload',()=>createBackup('fermeture'));
 const euro=n=>new Intl.NumberFormat('fr-FR',{style:'currency',currency:'EUR'}).format(Number(n)||0);
@@ -55,18 +98,19 @@ function budgetState(plannedAmount,actualAmount,isIncome=false){
   if(pct>=80)return{level:'warning',status:'À surveiller',diff,pct};
   return{level:'safe',status:'Dans le budget',diff,pct};
 }
-try{const cacheVersion='358';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
+try{const cacheVersion='360';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
-function mtx(i){return state.transactions.filter(t=>movementMonth(t)===i)}
+function mtx(i){return state.transactions.filter(t=>(Number(t.year)||BASE_YEAR)===selectedYear&&movementMonth(t)===i)}
 function isSavingsTransfer(t){const s=((t.category||'')+' '+(t.subcategory||'')+' '+(t.description||'')).toLowerCase();return s.includes('épargne')||s.includes('epargne')||s.includes('livret a')}
 function savingsOpening(){
   const rows=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]);
   const row=rows.find(r=>r&&String(r[1]||'').toLowerCase().includes('solde précédent'));
   return Number(row?.[5] ?? row?.[3] ?? 0)||0;
 }
-function savingsTransfers(monthIndex=null,pointedOnly=true){
+function savingsTransfers(monthIndex=null,pointedOnly=true,yearFilter=selectedYear){
   return state.transactions.filter(t=>
+    (yearFilter===null||(Number(t.year)||BASE_YEAR)===Number(yearFilter))&&
     (monthIndex===null||movementMonth(t)===monthIndex)&&
     isSavingsType(t)&&
     (!pointedOnly||t.pointed)
@@ -91,13 +135,13 @@ function cashImpact(t){
   return -amount;
 }
 function savingsBalance(){
-  return savingsOpening()+savingsTransfers(null,true).reduce((s,t)=>s+savingsImpact(t),0);
+  return savingsOpening()+savingsTransfers(null,true,null).reduce((s,t)=>s+savingsImpact(t),0);
 }
 
 const MOVEMENT_TYPES=[{id:'income',label:'Revenu'},{id:'bill',label:'Facture'},{id:'expense',label:'Dépense'},{id:'savings_transfer',label:'Virement vers épargne'},{id:'internal_transfer',label:'Virement interne'},{id:'refund',label:'Remboursement'}];
 const ACCOUNTS=[{id:'checking',label:'Compte courant'},{id:'savings',label:'Livret A'},{id:'cash',label:'Espèces'}];
 function inferMovementType(t){if(t.type)return t.type;if(isSavingsTransfer(t))return'savings_transfer';if((t.category||'').trim()==='Revenus')return'income';if(['Habitation','Télécommunications','Assurances','Banque','Impots'].includes((t.category||'').trim()))return'bill';return'expense'}
-function normalizeMovement(t){t.type=inferMovementType(t);if(!Number.isInteger(t.budgetMonth))t.budgetMonth=Number.isInteger(t.month)?t.month:0;if(!t.fromAccount)t.fromAccount=(t.type==='income'||t.type==='refund')?null:'checking';if(!t.toAccount)t.toAccount=(t.type==='income'||t.type==='refund')?'checking':(t.type==='savings_transfer'?'savings':null);return t}
+function normalizeMovement(t){t.year=Number(t.year)||selectedYear;t.type=inferMovementType(t);if(!Number.isInteger(t.budgetMonth))t.budgetMonth=Number.isInteger(t.month)?t.month:0;if(!t.fromAccount)t.fromAccount=(t.type==='income'||t.type==='refund')?null:'checking';if(!t.toAccount)t.toAccount=(t.type==='income'||t.type==='refund')?'checking':(t.type==='savings_transfer'?'savings':null);return t}
 function migrateMovements(){let changed=false;state.transactions=state.transactions.map(t=>{let before=JSON.stringify([t.type,t.fromAccount,t.toAccount]);normalizeMovement(t);if(before!==JSON.stringify([t.type,t.fromAccount,t.toAccount]))changed=true;return t});if(changed)localStorage.setItem(KEY,JSON.stringify(state))}
 function isIncomeType(t){return['income','refund'].includes(inferMovementType(t))}
 function isExpenseType(t){return['bill','expense'].includes(inferMovementType(t))}
@@ -108,9 +152,9 @@ function totals(i){let ts=mtx(i),income=0,expense=0,pincome=0,pexpense=0;for(con
 function planned(i){let ls=state.months[i].budgetLines;return{income:ls.filter(x=>x.type==='income').reduce((a,b)=>a+b.planned,0),expense:ls.filter(x=>x.type==='expense').reduce((a,b)=>a+b.planned,0)}}
 function cashTotals(i){let net=0,pnet=0,income=0,outflow=0,pincome=0,poutflow=0;for(const t of mtx(i)){const impact=cashImpact(t);net+=impact;if(t.pointed)pnet+=impact;if(impact>=0){income+=impact;if(t.pointed)pincome+=impact}else{outflow+=Math.abs(impact);if(t.pointed)poutflow+=Math.abs(impact)}}return{net,pnet,income,outflow,pincome,poutflow}}
 function balance(i,pointed=true){let prev=i===0?state.months[0].openingBalance:balance(i-1,pointed),t=cashTotals(i);return prev+(pointed?t.pnet:t.net)}
-function monthbar(){return `<div class="monthbar">${state.months.map((m,i)=>`<button data-month="${i}" class="${i===month?'active':''}">${m.month}</button>`).join('')}</div>`}
+function monthbar(){return `<div class="year-context"><span>Année</span><button data-go="archives">${selectedYear}</button></div><div class="monthbar">${state.months.map((m,i)=>`<button data-month="${i}" class="${i===month?'active':''}">${m.month}</button>`).join('')}</div>`}
 function layout(inner){return `<div class="wrap">${inner}</div>`}
-function daysLeftInMonth(i){const n=new Date();if(n.getFullYear()!==2026||n.getMonth()!==i)return new Date(2026,i+1,0).getDate();return Math.max(1,new Date(2026,i+1,0).getDate()-n.getDate()+1)}
+function daysLeftInMonth(i){const n=new Date();if(n.getFullYear()!==selectedYear||n.getMonth()!==i)return new Date(selectedYear,i+1,0).getDate();return Math.max(1,new Date(selectedYear,i+1,0).getDate()-n.getDate()+1)}
 function billsPending(i){return mtx(i).filter(t=>inferMovementType(t)==='bill'&&!t.pointed)}
 function unpointedMovements(i){return mtx(i).filter(t=>!t.pointed)}
 function monthSavings(i){return savingsTransfers(i,true).reduce((s,t)=>s+savingsImpact(t),0)}
@@ -137,15 +181,15 @@ function incompleteMovements(i){return mtx(i).filter(t=>!(t.description||'').tri
 function recurringToGenerate(i){return(state.recurringBills||[]).filter(r=>recurringDue(r,i)&&!state.transactions.some(t=>t.recurringKey===recurringKey(r,i)))}
 function importantUpcoming(i){return forecastData(i).rows.slice(0,3)}
 function budgetAlerts(i){const out=[],lines=state.months[i].budgetLines||[],plannedByCategory={},spentByCategory={};for(const l of lines){if(l.type!=='expense')continue;const k=(l.category||'Dépenses').trim();plannedByCategory[k]=(plannedByCategory[k]||0)+(Number(l.planned)||0)}for(const t of mtx(i).filter(t=>isExpenseType(t))){const k=(t.category||'Dépenses').trim();spentByCategory[k]=(spentByCategory[k]||0)+(Number(t.amount)||0)}for(const [category,planned] of Object.entries(plannedByCategory)){const spent=spentByCategory[category]||0,stateInfo=budgetState(planned,spent,false);if(stateInfo.level==='danger')out.push({tone:'danger',text:`${category} : budget dépassé de ${euro(Math.abs(stateInfo.diff))}`});else if(stateInfo.level==='warning'||stateInfo.level==='reached')out.push({tone:'warning',text:`${category} : ${stateInfo.level==='reached'?'budget atteint':stateInfo.pct.toFixed(0)+' % du budget utilisé'}`})}const projected=balance(i,false);if(projected<0)out.unshift({tone:'danger',text:`Solde prévisionnel négatif de ${euro(Math.abs(projected))}`});return out.slice(0,4)}
-function currentDayForMonth(i){const n=new Date();return n.getFullYear()===2026&&n.getMonth()===i?n.getDate():1}
+function currentDayForMonth(i){const n=new Date();return n.getFullYear()===selectedYear&&n.getMonth()===i?n.getDate():1}
 function easterSunday(year){const a=year%19,b=Math.floor(year/100),c=year%100,d=Math.floor(b/4),e=b%4,f=Math.floor((b+8)/25),g=Math.floor((b-f+1)/3),h=(19*a+b-d-g+15)%30,i=Math.floor(c/4),k=c%4,l=(32+2*e+2*i-h-k)%7,m=Math.floor((a+11*h+22*l)/451),month=Math.floor((h+l-7*m+114)/31)-1,day=(h+l-7*m+114)%31+1;return new Date(year,month,day)}
 function frenchHolidays(year){const fixed=[[0,1],[4,1],[4,8],[6,14],[7,15],[10,1],[10,11],[11,25]],e=easterSunday(year),dates=fixed.map(([m,d])=>new Date(year,m,d));for(const offset of [1,39,50]){const x=new Date(e);x.setDate(x.getDate()+offset);dates.push(x)}return new Set(dates.map(d=>`${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`))}
 function isBusinessDay(date){if(date.getDay()===0||date.getDay()===6)return false;if(state.forecastSettings?.useFrenchHolidays){const h=frenchHolidays(date.getFullYear());if(h.has(`${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`))return false}return true}
 function nextBusinessDay(date){const d=new Date(date);while(!isBusinessDay(d))d.setDate(d.getDate()+1);return d}
 function addBusinessDays(date,count){const d=new Date(date);let left=Math.max(0,Number(count)||0);while(left>0){d.setDate(d.getDate()+1);if(isBusinessDay(d))left--}return d}
-function forecastDateForMovement(t){const year=2026,baseMonth=movementMonth(t),last=new Date(year,baseMonth+1,0).getDate(),base=new Date(year,baseMonth,Math.min(last,Math.max(1,Number(t.day)||1))),type=inferMovementType(t),cfg=state.forecastSettings||{};let d=new Date(base),estimated=false,shifted=false;const now=new Date();now.setHours(0,0,0,0);if(type==='expense'&&!t.pointed&&Number(cfg.expenseDelay)>0&&base<now){d=addBusinessDays(now,Number(cfg.expenseDelay));estimated=true}else{const shouldShift=(type==='bill'&&cfg.shiftBills)||(isIncomeType(t)&&cfg.shiftIncome)||(type==='savings_transfer'&&cfg.shiftSavings);if(shouldShift&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}}return{date:d,estimated,shifted}}
+function forecastDateForMovement(t){const year=Number(t.year)||selectedYear,baseMonth=movementMonth(t),last=new Date(year,baseMonth+1,0).getDate(),base=new Date(year,baseMonth,Math.min(last,Math.max(1,Number(t.day)||1))),type=inferMovementType(t),cfg=state.forecastSettings||{};let d=new Date(base),estimated=false,shifted=false;const now=new Date();now.setHours(0,0,0,0);if(type==='expense'&&!t.pointed&&Number(cfg.expenseDelay)>0&&base<now){d=addBusinessDays(now,Number(cfg.expenseDelay));estimated=true}else{const shouldShift=(type==='bill'&&cfg.shiftBills)||(isIncomeType(t)&&cfg.shiftIncome)||(type==='savings_transfer'&&cfg.shiftSavings);if(shouldShift&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}}return{date:d,estimated,shifted}}
 
-function upcomingWithinDays(i,days=7){const from=currentDayForMonth(i),to=Math.min(new Date(2026,i+1,0).getDate(),from+days-1);return forecastData(i).rows.filter(x=>x.day>=from&&x.day<=to)}
+function upcomingWithinDays(i,days=7){const from=currentDayForMonth(i),to=Math.min(new Date(selectedYear,i+1,0).getDate(),from+days-1);return forecastData(i).rows.filter(x=>x.day>=from&&x.day<=to)}
 function smartInsights(i){
   const out=[], f=forecastData(i);
   if(f.ending<0)out.push({tone:'danger',icon:'−',text:`Le solde prévisionnel de fin de mois est négatif de ${euro(Math.abs(f.ending))}.`,go:'forecast'});
@@ -156,7 +200,7 @@ window.navigateTo=navigateTo;
 function home(){
   const current=balance(month,true), f=forecastData(month), savingsTotal=savingsBalance(), pending=unpointedMovements(month), week=upcomingWithinDays(month,7), weekOut=week.filter(x=>x.amount<0).reduce((s,x)=>s+Math.abs(x.amount),0), upcoming=f.rows.slice(0,5), insights=smartInsights(month), t=totals(month), p=planned(month), budgetInfo=budgetState(p.expense,t.expense,false), budgetUsed=Math.min(100,budgetInfo.pct);
   return layout(`${monthbar()}
-    <section class="today-head"><div><span>Aujourd’hui</span><h2>${state.months[month].month} 2026</h2><small>Ta situation essentielle en un coup d’œil.</small></div><button class="today-add" data-add>+</button></section>
+    <section class="today-head"><div><span>Aujourd’hui</span><h2>${state.months[month].month} ${selectedYear}</h2><small>Ta situation essentielle en un coup d’œil.</small></div><button class="today-add" data-add>+</button></section>
     <section class="today-grid">
       <button class="today-card main" data-go="forecast"><span class="today-icon">€</span><small>Disponible actuel</small><strong>${euro(current)}</strong><em>Fin de mois : ${euro(f.ending)}</em></button>
       <button class="today-card pending" data-go="transactions"><span class="today-icon">✓</span><small>À pointer</small><strong>${pending.length}</strong><em>Impact net ${euro(pending.reduce((s,x)=>s+cashImpact(x),0))}</em></button>
@@ -186,7 +230,7 @@ function recurringBadge(t){return t&&t.recurringKey?'<span class="recurring-badg
 function pointageRow(t){
   normalizeMovement(t);
   const positive=isIncomeType(t),flow=t.fromAccount&&t.toAccount?`${accountLabel(t.fromAccount)} → ${accountLabel(t.toAccount)}`:'';
-  const meta=[t.day?String(t.day).padStart(2,'0')+'/'+String(t.month+1).padStart(2,'0')+'/2026':'2026',typeLabel(t.type),t.subcategory,flow].filter(Boolean).join(' · ');
+  const meta=[t.day?String(t.day).padStart(2,'0')+'/'+String(t.month+1).padStart(2,'0')+'/'+(Number(t.year)||selectedYear):String(Number(t.year)||selectedYear),typeLabel(t.type),t.subcategory,flow].filter(Boolean).join(' · ');
   return `<article class="movement-card ${t.pointed?'is-pointed':'is-pending'}" data-edit="${esc(t.id)}">
     <div class="movement-icon type-${transactionTypeGroup(t)}">${movementIcon(t)}</div>
     <div class="movement-main"><div class="movement-top"><strong>${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</strong><span class="movement-status ${t.pointed?'done':'todo'}">${t.pointed?'Pointé':'À pointer'}</span></div><small>${esc(meta)}</small></div>
@@ -261,7 +305,7 @@ function annual(){
   });
   const inc=arr.reduce((a,b)=>a+b.inc,0),exp=arr.reduce((a,b)=>a+b.exp,0),sav=arr.reduce((a,b)=>a+b.savings,0),result=inc-exp,checkingVariation=result-sav;
   const mx=Math.max(...arr.map(x=>Math.abs(x.checkingVariation)),1);
-  return layout(`<div class="section-title annual-title"><div><h2>Synthèse annuelle 2026</h2><small>Vue synthétique des douze mois. Touchez un mois pour consulter ses mouvements.</small></div></div>
+  return layout(`<div class="section-title annual-title"><div><h2>Synthèse annuelle ${selectedYear}</h2><small>Vue synthétique des douze mois. Touchez un mois pour consulter ses mouvements.</small></div></div>
     <section class="annual-kpis annual-kpis-four">
       <div class="annual-kpi"><span>Revenus annuels</span><strong class="positive">${euro(inc)}</strong></div>
       <div class="annual-kpi"><span>Dépenses annuelles</span><strong class="negative">${euro(exp)}</strong></div>
@@ -281,14 +325,14 @@ function txList(items){
   if(!items||!items.length)return '<div class="empty">Aucune opération.</div>';
   return `<div class="list">${items.map(t=>{
     const positive=isIncomeType(t);
-    const date=t.day?`${String(t.day).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:month)+1).padStart(2,'0')}/2026`:'Date non renseignée';
+    const date=t.day?`${String(t.day).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:month)+1).padStart(2,'0')}/${selectedYear}`:'Date non renseignée';
     return `<button type="button" class="row" data-edit="${esc(t.id)}"><div><div class="title">${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</div><div class="sub">${esc(date)} · ${esc(t.subcategory||t.category||'Sans catégorie')}</div></div><div class="amount ${positive?'positive':'negative'}">${positive?'+':'−'}${euro(Math.abs(Number(t.amount)||0))}</div></button>`;
   }).join('')}</div>`;
 }
 function savingsMovementList(items){
   if(!items.length)return '<div class="empty">Aucun mouvement d’épargne.</div>';
   return `<div class="savings-movements">${items.map(t=>{
-    const impact=savingsImpact(t),date=`${String(t.day||1).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:0)+1).padStart(2,'0')}/2026`;
+    const impact=savingsImpact(t),date=`${String(t.day||1).padStart(2,'0')}/${String((Number.isInteger(t.month)?t.month:0)+1).padStart(2,'0')}/${Number(t.year)||selectedYear}`;
     const account=t.toAccount==='savings'?'Livret A':accountLabel(t.toAccount)||'Compte courant';
     const direction=impact>=0?'Versement vers l’épargne':'Retrait de l’épargne';
     return `<button type="button" class="savings-movement ${t.pointed?'is-pointed':'is-pending'}" data-edit="${esc(t.id)}">
@@ -300,13 +344,13 @@ function savingsMovementList(items){
 }
 function savings(){
   const opening=savingsOpening();
-  const allTransfers=savingsTransfers(null,false).slice().sort((a,b)=>(movementMonth(b)-movementMonth(a))||((b.day||0)-(a.day||0)));
+  const allTransfers=savingsTransfers(null,false,selectedYear).slice().sort((a,b)=>(movementMonth(b)-movementMonth(a))||((b.day||0)-(a.day||0)));
   const pointed=allTransfers.filter(t=>t.pointed);
   const unpointed=allTransfers.filter(t=>!t.pointed);
   const deposits=pointed.filter(t=>savingsImpact(t)>=0).reduce((s,t)=>s+savingsImpact(t),0);
   const withdrawals=Math.abs(pointed.filter(t=>savingsImpact(t)<0).reduce((s,t)=>s+savingsImpact(t),0));
   const annual=pointed.reduce((s,t)=>s+savingsImpact(t),0);
-  const current=opening+annual;
+  const current=opening+savingsTransfers(null,true,null).reduce((s,t)=>s+savingsImpact(t),0);
   const estimated=current+unpointed.reduce((s,t)=>s+savingsImpact(t),0);
   const monthTransfers=allTransfers.filter(t=>movementMonth(t)===month);
   const rows=(window.KERBUDGET_EXCEL_EXTRA?.Epargne||[]);
@@ -353,7 +397,7 @@ function recurringDue(r,m){
   const delta=m-start;
   return r.frequency==='yearly'?delta===0:r.frequency==='quarterly'?delta%3===0:true;
 }
-function recurringKey(r,m){return `${r.id}-2026-${String(m+1).padStart(2,'0')}`}
+function recurringKey(r,m){return `${r.id}-${selectedYear}-${String(m+1).padStart(2,'0')}`}
 function ensureRecurringForMonth(m,notify=false){
   let created=0,bills=0,savings=0;
   for(const r of state.recurringBills||[]){
@@ -363,7 +407,7 @@ function ensureRecurringForMonth(m,notify=false){
     const recurringType=r.type||'bill',isSavings=recurringType==='savings_transfer';
     state.transactions.push(normalizeMovement({
       id:'rec-'+Date.now()+'-'+Math.random().toString(36).slice(2,7),
-      month:m,budgetMonth:m,day:Math.min(31,Math.max(1,Number(r.day)||1)),
+      year:selectedYear,month:m,budgetMonth:m,day:Math.min(31,Math.max(1,Number(r.day)||1)),
       description:r.name,amount:Number(r.amount)||0,category:r.category||(isSavings?'Épargne':'Dépenses'),
       subcategory:r.subcategory||'',pointed:false,type:recurringType,
       fromAccount:isSavings?(r.fromAccount||'checking'):'checking',toAccount:isSavings?(r.toAccount||'savings'):null,
@@ -448,7 +492,7 @@ function monthReport(i){
   return{t,p,pending,prev,savings:x.savings,result:x.checkingVariation,categories:Object.entries(cats).sort((a,b)=>b[1]-a[1]||a[0].localeCompare(b[0],'fr')),incomeDiff:prev?diff(x.income,prev.income):null,expenseDiff:prev?diff(x.expense,prev.expense):null}
 }
 function diffBadge(d,invert=false){if(!d)return'<span class="trend neutral">Premier mois</span>';const good=invert?d.value<=0:d.value>=0;return`<span class="trend ${good?'good':'bad'}">${d.value>=0?'+':''}${euro(d.value)} · ${d.pct>=0?'+':''}${d.pct.toFixed(0)} %</span>`}
-function reportPendingList(items){return `<div class="report-pending-list">${items.map(t=>{const date=`${String(t.day||1).padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/2026`;return `<button type="button" class="report-pending-card" data-edit="${esc(t.id)}"><span class="report-pending-icon">${inferMovementType(t)==='bill'?'▤':'−'}</span><span><b>${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</b><small>${date} · ${esc(t.subcategory||t.category||'Sans catégorie')}</small></span><strong class="negative">−${euro(Math.abs(Number(t.amount)||0))}</strong></button>`}).join('')}</div>`}
+function reportPendingList(items){return `<div class="report-pending-list">${items.map(t=>{const date=`${String(t.day||1).padStart(2,'0')}/${String(movementMonth(t)+1).padStart(2,'0')}/${Number(t.year)||selectedYear}`;return `<button type="button" class="report-pending-card" data-edit="${esc(t.id)}"><span class="report-pending-icon">${inferMovementType(t)==='bill'?'▤':'−'}</span><span><b>${esc(t.description||t.subcategory||'Mouvement')}${recurringBadge(t)}</b><small>${date} · ${esc(t.subcategory||t.category||'Sans catégorie')}</small></span><strong class="negative">−${euro(Math.abs(Number(t.amount)||0))}</strong></button>`}).join('')}</div>`}
 function monthlyReport(){
   const r=monthReport(month),status=r.pending.length?'Provisoire':'À jour',max=Math.max(...r.categories.map(x=>x[1]),1);
   return layout(`${monthbar()}<div class="section-title report-title"><div><h2>Bilan • ${state.months[month].month}</h2><small>Vue complète du mois, avec toutes les catégories utilisées.</small></div><span class="report-status ${r.pending.length?'provisional':'ready'}">${status}</span></div>
@@ -461,10 +505,10 @@ function monthlyReport(){
 
 function forecastEvents(i){
   const events=[];
-  for(const t of state.transactions.filter(t=>!t.pointed)){
+  for(const t of state.transactions.filter(t=>!t.pointed&&(Number(t.year)||BASE_YEAR)===selectedYear)){
     normalizeMovement(t);
     const planned=forecastDateForMovement(t);
-    if(planned.date.getFullYear()!==2026||planned.date.getMonth()!==i)continue;
+    if(planned.date.getFullYear()!==selectedYear||planned.date.getMonth()!==i)continue;
     const type=inferMovementType(t),isIncome=isIncomeType(t);
     events.push({
       id:t.id,day:planned.date.getDate(),title:t.description||t.subcategory||typeLabel(type)||'Mouvement',amount:cashImpact(t),
@@ -476,9 +520,9 @@ function forecastEvents(i){
       if(sourceMonth<0||!recurringDue(r,sourceMonth))continue;
       const key=recurringKey(r,sourceMonth);
       if(state.transactions.some(t=>t.recurringKey===key)||(state.recurringSkips||[]).includes(key))continue;
-      let d=new Date(2026,sourceMonth,Math.min(new Date(2026,sourceMonth+1,0).getDate(),Math.max(1,Number(r.day)||1))),shifted=false;
+      let d=new Date(selectedYear,sourceMonth,Math.min(new Date(selectedYear,sourceMonth+1,0).getDate(),Math.max(1,Number(r.day)||1))),shifted=false;
       const shiftRecurring=(r.type||'bill')==='savings_transfer'?state.forecastSettings?.shiftSavings:state.forecastSettings?.shiftBills;if(shiftRecurring&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}
-      if(d.getMonth()!==i||d.getFullYear()!==2026)continue;
+      if(d.getMonth()!==i||d.getFullYear()!==selectedYear)continue;
       const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',recurring:true,shifted,estimated:false});
     }
   }
@@ -514,7 +558,7 @@ function forecastPeriodLabel(day,from,lastDay){
   return 'Plus tard';
 }
 function cashForecast(){
-  const all=forecastData(month),from=currentDayForMonth(month),lastDay=new Date(2026,month+1,0).getDate();
+  const all=forecastData(month),from=currentDayForMonth(month),lastDay=new Date(selectedYear,month+1,0).getDate();
   const rangeDays=forecastRange==='7'?7:forecastRange==='15'?15:(lastDay-from+1),to=Math.min(lastDay,from+rangeDays-1);
   let running=all.opening,min=running,totalIncome=0,totalOut=0;
   const fullRange=all.rows.filter(e=>e.day>=from&&e.day<=to).map(e=>{
@@ -652,7 +696,7 @@ function diagnostic(){
   return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
     <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
     <section class="diagnostic-grid">
-      <div><span>Version</span><strong>3.5.8 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Version</span><strong>3.6.0 Test</strong></div><div><span>Années disponibles</span><strong>${availableYears().length}</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
       <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
       <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
       <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
@@ -665,6 +709,7 @@ function diagnostic(){
 
 
 const VERSION_HISTORY=[
+  {version:'3.6.0 Test',date:'5 août 2026',items:['Gestion multi-années et archives.','Préparation automatique de la nouvelle année avec report du solde.','Copie des budgets, conservation des catégories et récurrences.']},
   {version:'3.5.8 Test',date:'5 août 2026',items:['Ajout du journal des versions.','Ajout d’une checklist de validation dans le diagnostic.','Correction du numéro de version affiché dans le diagnostic.']},
   {version:'3.5.7 Test',date:'5 août 2026',items:['Correction des budgets atteints exactement à 100 %.','Comparaison des montants en centimes pour éviter les faux dépassements.']},
   {version:'3.5.5 Test',date:'5 août 2026',items:['Séparation des factures récurrentes et des virements d’épargne récurrents.','Ajout d’un symbole sur les mouvements récurrents.']},
@@ -688,6 +733,16 @@ function validationChecks(){
   push('Budgets',state.months.every(m=>(m.budgetLines||[]).every(l=>Number.isFinite(Number(l.planned))&&Number(l.planned)>=0)),'Les montants prévus sont valides.');
   push('Sauvegarde locale',!!localStorage.getItem(KEY),'Les données sont présentes dans le stockage local.');
   return checks;
+}
+function archivesPage(){
+  const years=availableYears();
+  const currentYear=new Date().getFullYear();
+  const next=Math.max(...years,BASE_YEAR)+1;
+  return layout(`<div class="section-title"><div><h2>Années et archives</h2><small>Consulte une année ou prépare la suivante sans perdre l’historique.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
+    <section class="year-current-card"><span>Année affichée</span><strong>${selectedYear}</strong><small>${selectedYear===currentYear?'Année en cours':'Archive consultable'}</small></section>
+    <div class="section-title"><h2>Années disponibles</h2></div>
+    <div class="year-list">${years.map(y=>`<button class="year-card ${y===selectedYear?'active':''}" data-year="${y}"><span><b>${y}</b><small>${y===currentYear?'Année en cours':'Archive complète'}</small></span><strong>${y===selectedYear?'Affichée':'Ouvrir'}</strong></button>`).join('')}</div>
+    <section class="prepare-year-card"><div><h3>Préparer ${next}</h3><p>Report du solde pointé au 31 décembre, copie des budgets et conservation des catégories, récurrences et paramètres.</p></div><button class="btn" data-prepare-year="${next}">Préparer ${next}</button><small>Une sauvegarde locale est créée automatiquement avant l’opération.</small></section>`)
 }
 function versionJournal(){
   return layout(`<div class="section-title"><div><h2>Journal des versions</h2><small>Principales évolutions et corrections de KerBudget.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
@@ -727,6 +782,7 @@ function more(){
       ])}
       ${section('management','🗂️','Gestion',[
         item('categories','🏷️','Catégories et sous-catégories','Ajouter, renommer ou supprimer.','classement'),
+        item('archives','▦','Années et archives','Préparer une nouvelle année ou consulter les précédentes.','année archives report soldes'),
         item('recurring','🔁','Factures récurrentes','Prélèvements et factures automatiques.','mensuel trimestriel annuel'),
         backupItem
       ])}
@@ -737,20 +793,20 @@ function more(){
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
         item('versions','☷','Journal des versions','Consulter les principales évolutions et corrections.','historique nouveautés mises à jour'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.8 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.6.0 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
-function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
+function render(){const headerYear=document.querySelector('.top h1 span');if(headerYear)headerYear.textContent=selectedYear;const badge=document.querySelector('.version-badge');if(badge)badge.textContent='KerBudget 3.6.0 Test';let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():view==='archives'?archivesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function bind(){document.querySelectorAll('[data-year]').forEach(b=>b.onclick=()=>switchYear(b.dataset.year));document.querySelectorAll('[data-prepare-year]').forEach(b=>b.onclick=()=>{const y=+b.dataset.prepareYear;if(confirm(`Préparer ${y} maintenant ? Une sauvegarde sera créée avant le report.`)){prepareYear(y);render()}});document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring(null,ra.dataset.recurringKind||'bill');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
 document.querySelectorAll('[data-category-add]').forEach(b=>b.onclick=addCategory);document.querySelectorAll('[data-category-rename]').forEach(b=>b.onclick=()=>renameCategory(b.dataset.categoryRename));document.querySelectorAll('[data-category-delete]').forEach(b=>b.onclick=()=>deleteCategory(b.dataset.categoryDelete));document.querySelectorAll('[data-sub-add]').forEach(b=>b.onclick=()=>addSubcategory(b.dataset.subAdd));document.querySelectorAll('[data-sub-rename]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subRename.split('|');renameSubcategory(c,rest.join('|'))});document.querySelectorAll('[data-sub-delete]').forEach(b=>b.onclick=()=>{const [c,...rest]=b.dataset.subDelete.split('|');deleteSubcategory(c,rest.join('|'))});
 let rd=document.querySelector('[data-run-diagnostic]');if(rd)rd.onclick=()=>{analyzeKerBudget();render()};let dd=document.querySelector('[data-download-diagnostic]');if(dd)dd.onclick=downloadDiagnosticReport;
 let ms=document.querySelector('#moreSearch');if(ms)ms.oninput=()=>{const q=ms.value.trim().toLowerCase(),items=[...document.querySelectorAll('[data-more-item]')];let visible=0;items.forEach(x=>{const show=!q||(x.dataset.search||'').includes(q);x.hidden=!show;if(show)visible++});document.querySelectorAll('.more-section').forEach(sec=>{const count=[...sec.querySelectorAll('[data-more-item]')].filter(x=>!x.hidden).length;sec.hidden=count===0;if(q&&count)sec.open=true});const empty=document.querySelector('#moreEmpty');if(empty)empty.hidden=visible!==0};document.querySelectorAll('[data-more-section]').forEach(sec=>sec.ontoggle=()=>{let v={};try{v=JSON.parse(localStorage.getItem('kerbudget.more.sections')||'{}')}catch(e){}v[sec.dataset.moreSection]=sec.open;localStorage.setItem('kerbudget.more.sections',JSON.stringify(v))});
 document.querySelectorAll('[data-forecast-setting]').forEach(x=>x.onchange=()=>{state.forecastSettings[x.dataset.forecastSetting]=x.checked;save('réglages prévisions');render()});document.querySelectorAll('input[name="expenseDelay"]').forEach(x=>x.onchange=()=>{state.forecastSettings.expenseDelay=+x.value;save('réglages prévisions');render()});
-let rs=document.querySelector('[data-reset]');if(rs)rs.onclick=()=>{if(confirm('Attention : une sauvegarde sera créée avant la réinitialisation. Continuer ?')){createBackup('avant réinitialisation');state=normalizeState(D);localStorage.setItem(KEY,JSON.stringify(state));render()}}}
+let rs=document.querySelector('[data-reset]');if(rs)rs.onclick=()=>{if(confirm('Attention : une sauvegarde sera créée avant la réinitialisation. Continuer ?')){createBackup('avant réinitialisation');state=normalizeState(D);selectedYear=state.activeYear;state.months=state.years[selectedYear].months;localStorage.setItem(KEY,JSON.stringify(state));render()}}}
 function sameId(a,b){return String(a??'')===String(b??'')}
 function findTransaction(id){return state.transactions.find(t=>sameId(t.id,id))||null}
 function removeTransaction(id){const before=state.transactions.length;state.transactions=state.transactions.filter(t=>!sameId(t.id,id));return state.transactions.length<before}
@@ -804,6 +860,7 @@ function editTx(id,presetType=null){
   document.querySelector('#fpoint').onchange=e=>document.querySelector('#pointLabel').textContent=e.target.checked?'Pointée':'À pointer';
   document.querySelector('#cancel').onclick=closeModal;
   document.querySelector('#ok').onclick=()=>{
+    t.year=selectedYear;
     t.month=month;
     t.budgetMonth=+document.querySelector('#fbudgetmonth').value;
     t.day=Math.min(31,Math.max(1,+document.querySelector('#fday').value||new Date().getDate()));
@@ -873,6 +930,6 @@ function editTx(id,presetType=null){
 }
 function showToast(message){let old=document.querySelector('.app-toast');if(old)old.remove();let el=document.createElement('div');el.className='app-toast';el.textContent=message+' ✓';document.body.appendChild(el);requestAnimationFrame(()=>el.classList.add('show'));setTimeout(()=>{el.classList.remove('show');setTimeout(()=>el.remove(),250)},1800)}
 function closeModal(){document.querySelector('#modal').hidden=true;document.querySelector('#modal').innerHTML=''}
-function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download='budget-2026-sauvegarde.json';a.click();URL.revokeObjectURL(a.href)}
-function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=JSON.parse(r.result);save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
-document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=355').then(r=>r.update()).catch(()=>{});}ensureRecurringForMonth(month);render();
+function exportData(){let b=new Blob([JSON.stringify(state,null,2)],{type:'application/json'}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=`budget-${selectedYear}-sauvegarde.json`;a.click();URL.revokeObjectURL(a.href)}
+function importData(e){let f=e.target.files[0];if(!f)return;let r=new FileReader();r.onload=()=>{try{state=normalizeState(JSON.parse(r.result));selectedYear=state.activeYear;state.months=state.years[selectedYear].months;save();alert('Sauvegarde restaurée.');render()}catch{alert('Fichier de sauvegarde invalide.')}};r.readAsText(f)}
+document.querySelectorAll('.bottom button').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});document.querySelector('#modal').onclick=e=>{if(e.target.id==='modal')closeModal()};window.addEventListener('beforeinstallprompt',e=>{e.preventDefault();deferredPrompt=e;let b=document.querySelector('#installBtn');b.hidden=false;b.onclick=()=>deferredPrompt.prompt()});if('serviceWorker'in navigator){navigator.serviceWorker.register('sw.js?v=360').then(r=>r.update()).catch(()=>{});}if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);render();maybeOfferNewYear();
