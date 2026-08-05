@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.7.0-test', BASE_YEAR=2026, MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.7.1-test', BASE_YEAR=2026, MAX_BACKUPS=5;
 let state=load(), selectedYear=Number(state.activeYear)||BASE_YEAR, view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===selectedYear?new Date().getMonth():0)), deferredPrompt=null;
 let activeLoanId=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
@@ -121,7 +121,7 @@ function budgetState(plannedAmount,actualAmount,isIncome=false){
   if(pct>=80)return{level:'warning',status:'À surveiller',diff,pct};
   return{level:'safe',status:'Dans le budget',diff,pct};
 }
-try{const cacheVersion='370';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
+try{const cacheVersion='371';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
 function mtx(i){return state.transactions.filter(t=>(Number(t.year)||BASE_YEAR)===selectedYear&&movementMonth(t)===i)}
@@ -212,16 +212,16 @@ function nextBusinessDay(date){const d=new Date(date);while(!isBusinessDay(d))d.
 function addBusinessDays(date,count){const d=new Date(date);let left=Math.max(0,Number(count)||0);while(left>0){d.setDate(d.getDate()+1);if(isBusinessDay(d))left--}return d}
 function forecastDateForMovement(t){const year=Number(t.year)||selectedYear,baseMonth=movementMonth(t),last=new Date(year,baseMonth+1,0).getDate(),base=new Date(year,baseMonth,Math.min(last,Math.max(1,Number(t.day)||1))),type=inferMovementType(t),cfg=state.forecastSettings||{};let d=new Date(base),estimated=false,shifted=false;const now=new Date();now.setHours(0,0,0,0);if(type==='expense'&&!t.pointed&&Number(cfg.expenseDelay)>0&&base<now){d=addBusinessDays(now,Number(cfg.expenseDelay));estimated=true}else{const shouldShift=(type==='bill'&&cfg.shiftBills)||(isIncomeType(t)&&cfg.shiftIncome)||(type==='savings_transfer'&&cfg.shiftSavings);if(shouldShift&&!isBusinessDay(d)){d=nextBusinessDay(d);shifted=true}}return{date:d,estimated,shifted}}
 
-function upcomingWithinDays(i,days=7){const from=currentDayForMonth(i),to=Math.min(new Date(selectedYear,i+1,0).getDate(),from+days-1);return forecastData(i).rows.filter(x=>x.day>=from&&x.day<=to)}
-function smartInsights(i){
-  const out=[], f=forecastData(i);
+function upcomingWithinDays(i,days=7,forecast=null){const from=currentDayForMonth(i),to=Math.min(new Date(selectedYear,i+1,0).getDate(),from+days-1);const f=forecast||forecastData(i);return f.rows.filter(x=>x.day>=from&&x.day<=to)}
+function smartInsights(i,forecast=null){
+  const out=[], f=forecast||forecastData(i);
   if(f.ending<0)out.push({tone:'danger',icon:'−',text:`Le solde prévisionnel de fin de mois est négatif de ${euro(Math.abs(f.ending))}.`,go:'forecast'});
   return out
 }
 function navigateTo(target){view=target;render();window.scrollTo({top:0,behavior:'auto'})}
 window.navigateTo=navigateTo;
 function home(){
-  const current=balance(month,true), f=forecastData(month), savingsTotal=savingsBalance(), pending=unpointedMovements(month), week=upcomingWithinDays(month,7), weekOut=week.filter(x=>x.amount<0).reduce((s,x)=>s+Math.abs(x.amount),0), upcoming=f.rows.slice(0,5), insights=smartInsights(month), t=totals(month), p=planned(month), budgetInfo=budgetState(p.expense,t.expense,false), budgetUsed=Math.min(100,budgetInfo.pct);
+  const current=balance(month,true), f=forecastData(month), savingsTotal=savingsBalance(), pending=unpointedMovements(month), week=upcomingWithinDays(month,7,f), weekOut=week.filter(x=>x.amount<0).reduce((s,x)=>s+Math.abs(x.amount),0), upcoming=f.rows.slice(0,5), insights=smartInsights(month,f), t=totals(month), p=planned(month), budgetInfo=budgetState(p.expense,t.expense,false), budgetUsed=Math.min(100,budgetInfo.pct);
   return layout(`${monthbar()}
     <section class="today-head"><div><span>Aujourd’hui</span><h2>${state.months[month].month} ${selectedYear}</h2><small>Ta situation essentielle en un coup d’œil.</small></div><button class="today-add" data-add>+</button></section>
     <section class="today-grid">
@@ -529,7 +529,25 @@ function forecastEvents(i){
       const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',recurring:true,shifted,estimated:false});
     }
   }
-  for(const loan of state.loans||[]){if(loan.includeForecast===false)continue;for(const inst of loan.schedule||[]){const d=parseDate(inst.date);if(!d||d.getFullYear()!==selectedYear||d.getMonth()!==i||loanInstallmentPointed(loan,inst))continue;events.push({id:`loan-${loan.id}-${inst.id}`,loanId:loan.id,day:d.getDate(),title:loan.name,amount:-Math.abs(Number(inst.amount)||0),kind:'bill',source:'loan',recurring:true,shifted:false,estimated:false})}}
+  const pointedLoanKeys=new Set(),legacyPointedByMonth=new Set();
+  for(const t of state.transactions){
+    if(!t.pointed)continue;
+    if(t.loanId!=null&&t.loanInstallmentId!=null)pointedLoanKeys.add(`${String(t.loanId)}::${String(t.loanInstallmentId)}`);
+    const y=Number(t.year)||BASE_YEAR,m=movementMonth(t),label=String(t.description||'').toUpperCase();
+    if(label)legacyPointedByMonth.add(`${y}:${m}:${label}`);
+  }
+  for(const loan of state.loans||[]){
+    if(loan.includeForecast===false)continue;
+    const match=String(loan.matchLabel||'').toUpperCase();
+    for(const inst of loan.schedule||[]){
+      const d=parseDate(inst.date);
+      if(!d||d.getFullYear()!==selectedYear||d.getMonth()!==i)continue;
+      const exact=pointedLoanKeys.has(`${String(loan.id)}::${String(inst.id)}`);
+      const legacy=match&&[...legacyPointedByMonth].some(k=>k.startsWith(`${d.getFullYear()}:${d.getMonth()}:`)&&k.includes(match));
+      if(exact||legacy)continue;
+      events.push({id:`loan-${loan.id}-${inst.id}`,loanId:loan.id,day:d.getDate(),title:loan.name,amount:-Math.abs(Number(inst.amount)||0),kind:'bill',source:'loan',recurring:true,shifted:false,estimated:false});
+    }
+  }
   return events.sort((a,b)=>a.day-b.day||a.title.localeCompare(b.title,'fr'));
 }
 function forecastData(i){
@@ -713,7 +731,7 @@ function diagnostic(){
 
 
 const VERSION_HISTORY=[
-  {version:'3.7.0 Test',date:'5 août 2026',items:['Module Prêts : liste, fiches et échéanciers.','Ajout, modification et pointage des mensualités.','Intégration des échéances dans À venir.']},
+  {version:'3.7.1 Test',date:'5 août 2026',items:['Module Prêts : liste, fiches et échéanciers.','Ajout, modification et pointage des mensualités.','Intégration des échéances dans À venir.']},
   {version:'3.6.0 Test',date:'5 août 2026',items:['Gestion multi-années et archives.','Préparation automatique de la nouvelle année avec report du solde.','Copie des budgets, conservation des catégories et récurrences.']},
   {version:'3.5.8 Test',date:'5 août 2026',items:['Ajout du journal des versions.','Ajout d’une checklist de validation dans le diagnostic.','Correction du numéro de version affiché dans le diagnostic.']},
   {version:'3.5.7 Test',date:'5 août 2026',items:['Correction des budgets atteints exactement à 100 %.','Comparaison des montants en centimes pour éviter les faux dépassements.']},
@@ -798,12 +816,12 @@ function more(){
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
         item('versions','☷','Journal des versions','Consulter les principales évolutions et corrections.','historique nouveautés mises à jour'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.7.0 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.7.1 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){const headerYear=document.querySelector('.top h1 span');if(headerYear)headerYear.textContent=selectedYear;const badge=document.querySelector('.version-badge');if(badge)badge.textContent='KerBudget 3.7.0 Test';let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='loans'?loansPage():view==='loan-detail'?loanDetail():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():view==='archives'?archivesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function render(){try{const headerYear=document.querySelector('.top h1 span');if(headerYear)headerYear.textContent=selectedYear;const badge=document.querySelector('.version-badge');if(badge)badge.textContent='KerBudget 3.7.1 Test';let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='loans'?loansPage():view==='loan-detail'?loanDetail():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():view==='archives'?archivesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}catch(err){console.error('Erreur affichage',view,err);document.querySelector('#app').innerHTML=layout(`<section class="card"><h2>Impossible d’afficher cette page</h2><p>${esc(err?.message||String(err))}</p><button class="btn" data-go="more">Retour à Plus</button></section>`);bind()}}
 function bind(){document.querySelectorAll('[data-year]').forEach(b=>b.onclick=()=>switchYear(b.dataset.year));document.querySelectorAll('[data-prepare-year]').forEach(b=>b.onclick=()=>{const y=+b.dataset.prepareYear;if(confirm(`Préparer ${y} maintenant ? Une sauvegarde sera créée avant le report.`)){prepareYear(y);render()}});document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-loan-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();activeLoanId=b.dataset.loanOpen;view='loan-detail';render()});document.querySelectorAll('[data-loan-add]').forEach(b=>b.onclick=()=>editLoan());document.querySelectorAll('[data-loan-edit]').forEach(b=>b.onclick=()=>editLoan(b.dataset.loanEdit));document.querySelectorAll('[data-loan-delete]').forEach(b=>b.onclick=()=>deleteLoan(b.dataset.loanDelete));document.querySelectorAll('[data-loan-installment-edit]').forEach(b=>b.onclick=()=>{const [l,i]=b.dataset.loanInstallmentEdit.split('|');editLoanInstallment(l,i)});document.querySelectorAll('[data-loan-point]').forEach(b=>b.onclick=()=>{const [l,i]=b.dataset.loanPoint.split('|');toggleLoanInstallment(l,i)});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring(null,ra.dataset.recurringKind||'bill');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
