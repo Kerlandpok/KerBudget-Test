@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.7-test', MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.5.8-test', MAX_BACKUPS=5;
 let state=load(), view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===2026?new Date().getMonth():0)), deferredPrompt=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
 function cloneData(v){return JSON.parse(JSON.stringify(v))}
@@ -55,7 +55,7 @@ function budgetState(plannedAmount,actualAmount,isIncome=false){
   if(pct>=80)return{level:'warning',status:'À surveiller',diff,pct};
   return{level:'safe',status:'Dans le budget',diff,pct};
 }
-try{const cacheVersion='357';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
+try{const cacheVersion='358';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
 function mtx(i){return state.transactions.filter(t=>movementMonth(t)===i)}
@@ -652,14 +652,46 @@ function diagnostic(){
   return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
     <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
     <section class="diagnostic-grid">
-      <div><span>Version</span><strong>3.5.0 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Version</span><strong>3.5.8 Test</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
       <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
       <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
       <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
     </section>
     <section class="diagnostic-card"><div class="diagnostic-card-head"><div><span>Vérifications automatiques</span><h3>Intégrité des données</h3></div><button class="btn" data-run-diagnostic>Analyser KerBudget</button></div><div class="diagnostic-results">${checks}</div></section>
+    <section class="diagnostic-card"><div class="diagnostic-card-head"><div><span>Checklist</span><h3>Validation fonctionnelle</h3></div></div><div class="validation-list">${validationChecks().map(c=>`<div class="validation-row ${c.ok?'ok':'bad'}"><b>${c.ok?'✓':'!'}</b><div><strong>${esc(c.label)}</strong><small>${esc(c.detail)}</small></div></div>`).join('')}</div></section>
     <section class="diagnostic-card"><div class="diagnostic-card-head"><div><span>Rapport</span><h3>Conserver ou partager le résultat</h3></div></div><p>Le rapport contient uniquement des informations techniques et les anomalies détectées. Il ne modifie aucune donnée.</p><button class="btn secondary" data-download-diagnostic ${result?'':'disabled'}>Télécharger le rapport</button></section>
   `);
+}
+
+
+const VERSION_HISTORY=[
+  {version:'3.5.8 Test',date:'5 août 2026',items:['Ajout du journal des versions.','Ajout d’une checklist de validation dans le diagnostic.','Correction du numéro de version affiché dans le diagnostic.']},
+  {version:'3.5.7 Test',date:'5 août 2026',items:['Correction des budgets atteints exactement à 100 %.','Comparaison des montants en centimes pour éviter les faux dépassements.']},
+  {version:'3.5.5 Test',date:'5 août 2026',items:['Séparation des factures récurrentes et des virements d’épargne récurrents.','Ajout d’un symbole sur les mouvements récurrents.']},
+  {version:'3.5.4 Test',date:'5 août 2026',items:['Mémorisation de la suppression des occurrences récurrentes.']},
+  {version:'3.5.0 Test',date:'5 août 2026',items:['Refonte du bilan mensuel.','Ajout des virements d’épargne récurrents.','Affichage de toutes les catégories du bilan.']},
+  {version:'3.4.9 Test',date:'5 août 2026',items:['Prévisions avec jours ouvrés et jours fériés.','Intégration des dépenses non pointées dans À venir.']},
+  {version:'3.4.7 Test',date:'4 août 2026',items:['Correction des calculs d’épargne, du budget Banque et du solde annuel.']},
+  {version:'3.4.3 Test',date:'4 août 2026',items:['Réorganisation complète de la page Plus.']},
+  {version:'3.3.9 Test',date:'3 août 2026',items:['Détail complet de l’épargne et de ses mouvements.']}
+];
+function validationChecks(){
+  const tx=state.transactions||[],cats=state.categories||{};
+  const checks=[];
+  const push=(label,ok,detail)=>checks.push({label,ok,detail});
+  push('Ajout / modification / suppression',typeof editTx==='function'&&typeof removeTransaction==='function','Fonctions de gestion des mouvements disponibles.');
+  push('Pointage / dépointage',tx.every(t=>typeof t.pointed==='boolean'),'Tous les mouvements possèdent un état de pointage valide.');
+  push('Catégories',tx.every(t=>t.category&&Object.prototype.hasOwnProperty.call(cats,t.category)),'Tous les mouvements utilisent une catégorie existante.');
+  push('Montants',tx.every(t=>Number.isFinite(Number(t.amount))),'Tous les montants sont numériques.');
+  push('Dates mensuelles',tx.every(t=>Number.isInteger(Number(t.month))&&Number(t.month)>=0&&Number(t.month)<=11&&Number(t.day)>=1&&Number(t.day)<=31),'Les mois et jours enregistrés sont dans une plage valide.');
+  push('Virements d’épargne',savingsTransfers(null,false).every(t=>t.fromAccount&&t.toAccount&&t.fromAccount!==t.toAccount),'Les comptes de départ et d’arrivée sont valides.');
+  push('Budgets',state.months.every(m=>(m.budgetLines||[]).every(l=>Number.isFinite(Number(l.planned))&&Number(l.planned)>=0)),'Les montants prévus sont valides.');
+  push('Sauvegarde locale',!!localStorage.getItem(KEY),'Les données sont présentes dans le stockage local.');
+  return checks;
+}
+function versionJournal(){
+  return layout(`<div class="section-title"><div><h2>Journal des versions</h2><small>Principales évolutions et corrections de KerBudget.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
+    <div class="version-timeline">${VERSION_HISTORY.map((v,i)=>`<article class="version-entry ${i===0?'current':''}"><div class="version-head"><div><span>${esc(v.date)}</span><h3>KerBudget ${esc(v.version)}</h3></div>${i===0?'<b>Installée</b>':''}</div><ul>${v.items.map(x=>`<li>${esc(x)}</li>`).join('')}</ul></article>`).join('')}</div>`);
 }
 
 function forecastSettingsPage(){const c=state.forecastSettings;return layout(`<div class="section-title"><div><h2>Prévisions</h2><small>Choisis comment KerBudget estime les dates dans À venir.</small></div></div>
@@ -704,12 +736,13 @@ function more(){
       ])}
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.7 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        item('versions','☷','Journal des versions','Consulter les principales évolutions et corrections.','historique nouveautés mises à jour'),
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.5.8 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
+function render(){let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}
 function bind(){document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring(null,ra.dataset.recurringKind||'bill');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
