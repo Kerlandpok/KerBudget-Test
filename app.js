@@ -1,5 +1,5 @@
 
-const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.7.1-test', BASE_YEAR=2026, MAX_BACKUPS=5;
+const D=window.INITIAL_DATA, KEY='budget2026.test.v2', BACKUP_KEY='budget2026.test.backups', APP_VERSION='3.7.2-test', BASE_YEAR=2026, MAX_BACKUPS=5;
 let state=load(), selectedYear=Number(state.activeYear)||BASE_YEAR, view='home', month=Math.max(0,Math.min(11,new Date().getFullYear()===selectedYear?new Date().getMonth():0)), deferredPrompt=null;
 let activeLoanId=null;
 let txStatusFilter='all', txTypeFilter='all', txSearch='', forecastTypeFilter='all', forecastRange='month', diagnosticResults=null;
@@ -28,15 +28,47 @@ function buildLoanSchedule(loan){
   return Array.from({length:count},(_,i)=>{const d=addMonthsDate(loan.startDate,i),amount=i===count-1&&total?Math.max(0,remaining):(monthly||Math.round(total/count*100)/100);remaining=Math.max(0,remaining-amount);return{id:`${loan.id}-i${i+1}`,date:d.toISOString().slice(0,10),amount:+amount.toFixed(2),capital:+amount.toFixed(2),interest:0,insurance:0,remaining:+remaining.toFixed(2)}})
 }
 function normalizeLoans(raw,solar){
-  if(Array.isArray(raw))return raw.map(l=>{const loan={includeForecast:true,type:'bank',organization:'',rate:0,insurance:0,...l};loan.schedule=Array.isArray(loan.schedule)&&loan.schedule.length?loan.schedule:buildLoanSchedule(loan);return loan});
+  if(Array.isArray(raw))return raw.map((l,loanIndex)=>{
+    const loan={includeForecast:true,type:'bank',organization:'',rate:0,insurance:0,...l};
+    const source=Array.isArray(loan.schedule)&&loan.schedule.length?loan.schedule:buildLoanSchedule(loan);
+    const seen=new Set();
+    loan.schedule=source.map((inst,i)=>({
+      ...inst,
+      id:String(inst.id||`${loan.id||'loan-'+loanIndex}-i${i+1}`),
+      amount:+(Number(inst.amount)||0).toFixed(2),
+      capital:+(Number(inst.capital??inst.amount)||0).toFixed(2),
+      interest:+(Number(inst.interest)||0).toFixed(2),
+      insurance:+(Number(inst.insurance)||0).toFixed(2),
+      remaining:+(Number(inst.remaining)||0).toFixed(2)
+    })).filter(inst=>{const key=`${inst.id}|${inst.date}`;if(seen.has(key))return false;seen.add(key);return true});
+    loan.installmentCount=loan.schedule.length||Number(loan.installmentCount)||1;
+    return loan;
+  });
   const source=Array.isArray(solar)?solar:[],total=source.reduce((a,x)=>a+(Number(x.scheduled)||0),0),count=source.length||60;
   const loan={id:'loan-photovoltaic',name:'Prêt photovoltaïque',organization:'SYGMA',type:'photovoltaic',startDate:'2026-01-10',endDate:addMonthsDate('2026-01-10',count-1).toISOString().slice(0,10),totalDue:+total.toFixed(2),borrowedAmount:13819.47,monthlyPayment:Number(source[0]?.scheduled)||246.95,rate:0,insurance:0,installmentCount:count,includeForecast:false,matchLabel:'PRÊT SYGMA'};
   loan.schedule=source.length?source.map((x,i)=>{const d=addMonthsDate(loan.startDate,i),remaining=source.slice(i+1).reduce((a,z)=>a+(Number(z.scheduled)||0),0);return{id:`${loan.id}-i${i+1}`,date:d.toISOString().slice(0,10),amount:Number(x.scheduled)||0,capital:Number(x.scheduled)||0,interest:0,insurance:0,remaining:+remaining.toFixed(2)}}):buildLoanSchedule(loan);
   return [loan];
 }
 function loanById(id){return (state.loans||[]).find(l=>sameId(l.id,id))||null}
-function loanInstallmentPointed(loan,inst){return state.transactions.some(t=>t.loanId===loan.id&&t.loanInstallmentId===inst.id&&t.pointed)||state.transactions.some(t=>t.pointed&&loan.matchLabel&&String(t.description||'').toUpperCase().includes(String(loan.matchLabel).toUpperCase())&&(Number(t.year)||BASE_YEAR)===(parseDate(inst.date)?.getFullYear())&&movementMonth(t)===(parseDate(inst.date)?.getMonth()))}
-function loanStats(loan){const schedule=loan.schedule||[],today=new Date();today.setHours(0,0,0,0);const total=schedule.reduce((a,x)=>a+(Number(x.amount)||0),0)||Number(loan.totalDue)||0;const paid=schedule.filter(x=>loanInstallmentPointed(loan,x)).reduce((a,x)=>a+(Number(x.amount)||0),0);const remaining=Math.max(0,total-paid);const future=schedule.filter(x=>(parseDate(x.date)||new Date(0))>=today&&!loanInstallmentPointed(loan,x));const end=parseDate(loan.endDate||schedule.at(-1)?.date),months=end?Math.max(0,(end.getFullYear()-today.getFullYear())*12+end.getMonth()-today.getMonth()):0;return{total,paid,remaining,progress:total?Math.min(100,paid/total*100):0,next:future[0]||null,months,years:Math.floor(months/12),extraMonths:months%12}}
+function buildLoanPointIndex(){
+  const exact=new Set(),legacy=new Map();
+  for(const t of state.transactions||[]){
+    if(!t.pointed)continue;
+    if(t.loanId!=null&&t.loanInstallmentId!=null)exact.add(`${String(t.loanId)}::${String(t.loanInstallmentId)}`);
+    const y=Number(t.year)||BASE_YEAR,m=movementMonth(t),label=String(t.description||'').toUpperCase();
+    if(label){const key=`${y}:${m}`;if(!legacy.has(key))legacy.set(key,[]);legacy.get(key).push(label)}
+  }
+  return{exact,legacy};
+}
+function loanInstallmentPointed(loan,inst,index=null){
+  const idx=index||buildLoanPointIndex(),key=`${String(loan.id)}::${String(inst.id)}`;
+  if(idx.exact.has(key))return true;
+  if(!loan.matchLabel)return false;
+  const d=parseDate(inst.date);if(!d)return false;
+  const labels=idx.legacy.get(`${d.getFullYear()}:${d.getMonth()}`)||[],match=String(loan.matchLabel).toUpperCase();
+  return labels.some(label=>label.includes(match));
+}
+function loanStats(loan){const schedule=loan.schedule||[],idx=buildLoanPointIndex(),today=new Date();today.setHours(0,0,0,0);const total=schedule.reduce((a,x)=>a+(Number(x.amount)||0),0)||Number(loan.totalDue)||0;const paid=schedule.filter(x=>loanInstallmentPointed(loan,x,idx)).reduce((a,x)=>a+(Number(x.amount)||0),0);const remaining=Math.max(0,total-paid);const future=schedule.filter(x=>(parseDate(x.date)||new Date(0))>=today&&!loanInstallmentPointed(loan,x,idx));const end=parseDate(loan.endDate||schedule.at(-1)?.date),months=end?Math.max(0,(end.getFullYear()-today.getFullYear())*12+end.getMonth()-today.getMonth()):0;return{total,paid,remaining,progress:total?Math.min(100,paid/total*100):0,next:future[0]||null,months,years:Math.floor(months/12),extraMonths:months%12}}
 function loanIcon(type){return type==='photovoltaic'?'☀️':type==='mortgage'?'🏠':type==='auto'?'🚗':'🏦'}
 
 function syncActiveYear(){
@@ -121,7 +153,7 @@ function budgetState(plannedAmount,actualAmount,isIncome=false){
   if(pct>=80)return{level:'warning',status:'À surveiller',diff,pct};
   return{level:'safe',status:'Dans le budget',diff,pct};
 }
-try{const cacheVersion='371';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
+try{const cacheVersion='372';if(localStorage.getItem('kerbudget-cache-version')!==cacheVersion){localStorage.setItem('kerbudget-cache-version',cacheVersion);if('caches' in window)caches.keys().then(keys=>Promise.all(keys.map(k=>caches.delete(k))));}}catch(e){}
 const esc=s=>String(s??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
 function movementMonth(t){return Number.isInteger(t.budgetMonth)?t.budgetMonth:(Number.isInteger(t.month)?t.month:0)}
 function mtx(i){return state.transactions.filter(t=>(Number(t.year)||BASE_YEAR)===selectedYear&&movementMonth(t)===i)}
@@ -529,13 +561,7 @@ function forecastEvents(i){
       const isSavings=(r.type||'bill')==='savings_transfer',impact=isSavings?(r.fromAccount==='savings'?Math.abs(Number(r.amount)||0):-Math.abs(Number(r.amount)||0)):-Math.abs(Number(r.amount)||0);events.push({id:'planned-'+key,day:d.getDate(),title:r.name,amount:impact,kind:isSavings?'savings':'planned',source:'recurring',recurring:true,shifted,estimated:false});
     }
   }
-  const pointedLoanKeys=new Set(),legacyPointedByMonth=new Set();
-  for(const t of state.transactions){
-    if(!t.pointed)continue;
-    if(t.loanId!=null&&t.loanInstallmentId!=null)pointedLoanKeys.add(`${String(t.loanId)}::${String(t.loanInstallmentId)}`);
-    const y=Number(t.year)||BASE_YEAR,m=movementMonth(t),label=String(t.description||'').toUpperCase();
-    if(label)legacyPointedByMonth.add(`${y}:${m}:${label}`);
-  }
+  const loanPointIndex=buildLoanPointIndex(),pointedLoanKeys=loanPointIndex.exact,legacyPointedByMonth=loanPointIndex.legacy;
   for(const loan of state.loans||[]){
     if(loan.includeForecast===false)continue;
     const match=String(loan.matchLabel||'').toUpperCase();
@@ -543,7 +569,7 @@ function forecastEvents(i){
       const d=parseDate(inst.date);
       if(!d||d.getFullYear()!==selectedYear||d.getMonth()!==i)continue;
       const exact=pointedLoanKeys.has(`${String(loan.id)}::${String(inst.id)}`);
-      const legacy=match&&[...legacyPointedByMonth].some(k=>k.startsWith(`${d.getFullYear()}:${d.getMonth()}:`)&&k.includes(match));
+      const legacy=match&&(legacyPointedByMonth.get(`${d.getFullYear()}:${d.getMonth()}`)||[]).some(label=>label.includes(match));
       if(exact||legacy)continue;
       events.push({id:`loan-${loan.id}-${inst.id}`,loanId:loan.id,day:d.getDate(),title:loan.name,amount:-Math.abs(Number(inst.amount)||0),kind:'bill',source:'loan',recurring:true,shifted:false,estimated:false});
     }
@@ -718,7 +744,7 @@ function diagnostic(){
   return layout(`<div class="section-title diagnostic-title"><div><h2>Diagnostic KerBudget</h2><small>Contrôle de l’application et de tes données locales.</small></div><button class="btn secondary" data-go="more">Retour</button></div>
     <section class="diagnostic-status ${status.tone}"><b>${status.icon}</b><div><span>État général</span><strong>${status.label}</strong>${result?`<small>Analyse du ${new Date(result.date).toLocaleString('fr-FR')}</small>`:''}</div></section>
     <section class="diagnostic-grid">
-      <div><span>Version</span><strong>3.6.0 Test</strong></div><div><span>Années disponibles</span><strong>${availableYears().length}</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
+      <div><span>Version</span><strong>3.7.2 Test</strong></div><div><span>Années disponibles</span><strong>${availableYears().length}</strong></div><div><span>Taille des données</span><strong>${snap.size}</strong></div>
       <div><span>Mouvements</span><strong>${snap.movements}</strong></div><div><span>Catégories</span><strong>${snap.categories}</strong></div>
       <div><span>Sous-catégories</span><strong>${snap.subcategories}</strong></div><div><span>Lignes de budget</span><strong>${snap.budgets}</strong></div>
       <div><span>Sauvegardes locales</span><strong>${snap.backups}</strong></div><div><span>Dernier enregistrement</span><strong class="small-value">${esc(snap.lastSaved)}</strong></div>
@@ -731,6 +757,7 @@ function diagnostic(){
 
 
 const VERSION_HISTORY=[
+  {version:'3.7.2 Test',date:'6 août 2026',items:['Stabilisation du module Prêts.','Contrôles d’intégrité des échéanciers dans le diagnostic.','Calculs Aujourd’hui et À venir optimisés avec les prêts.']},
   {version:'3.7.1 Test',date:'5 août 2026',items:['Module Prêts : liste, fiches et échéanciers.','Ajout, modification et pointage des mensualités.','Intégration des échéances dans À venir.']},
   {version:'3.6.0 Test',date:'5 août 2026',items:['Gestion multi-années et archives.','Préparation automatique de la nouvelle année avec report du solde.','Copie des budgets, conservation des catégories et récurrences.']},
   {version:'3.5.8 Test',date:'5 août 2026',items:['Ajout du journal des versions.','Ajout d’une checklist de validation dans le diagnostic.','Correction du numéro de version affiché dans le diagnostic.']},
@@ -754,6 +781,9 @@ function validationChecks(){
   push('Dates mensuelles',tx.every(t=>Number.isInteger(Number(t.month))&&Number(t.month)>=0&&Number(t.month)<=11&&Number(t.day)>=1&&Number(t.day)<=31),'Les mois et jours enregistrés sont dans une plage valide.');
   push('Virements d’épargne',savingsTransfers(null,false).every(t=>t.fromAccount&&t.toAccount&&t.fromAccount!==t.toAccount),'Les comptes de départ et d’arrivée sont valides.');
   push('Budgets',state.months.every(m=>(m.budgetLines||[]).every(l=>Number.isFinite(Number(l.planned))&&Number(l.planned)>=0)),'Les montants prévus sont valides.');
+  const loans=state.loans||[];
+  push('Prêts',loans.every(l=>l.id&&l.name&&parseDate(l.startDate)&&parseDate(l.endDate)&&Array.isArray(l.schedule)&&l.schedule.length>0),'Chaque prêt possède des dates valides et un échéancier.');
+  push('Échéanciers',loans.every(l=>{const keys=new Set();return (l.schedule||[]).every(i=>{const key=`${i.id}|${i.date}`;if(keys.has(key))return false;keys.add(key);return parseDate(i.date)&&Number.isFinite(Number(i.amount))&&Number(i.amount)>=0})}),'Aucune mensualité dupliquée et tous les montants sont valides.');
   push('Sauvegarde locale',!!localStorage.getItem(KEY),'Les données sont présentes dans le stockage local.');
   return checks;
 }
@@ -816,12 +846,12 @@ function more(){
       ${section('application','⚙️','Application',[
         item('forecast-settings','◷','Prévisions','Jours ouvrés et dépenses non pointées.','factures revenus épargne jours fériés'),
         item('versions','☷','Journal des versions','Consulter les principales évolutions et corrections.','historique nouveautés mises à jour'),
-        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.7.1 Test</b><small>Version installée sur cet appareil.</small></span></div>`
+        `<div class="more-item more-item-static" data-more-item data-search="application version kerbudget mise à jour"><span class="more-item-icon">ℹ</span><span class="more-item-copy"><b>KerBudget 3.7.2 Test</b><small>Version installée sur cet appareil.</small></span></div>`
       ])}
     </div>
     <div id="moreEmpty" class="empty more-empty" hidden>Aucun réglage ne correspond à cette recherche.</div>`)
 }
-function render(){try{const headerYear=document.querySelector('.top h1 span');if(headerYear)headerYear.textContent=selectedYear;const badge=document.querySelector('.version-badge');if(badge)badge.textContent='KerBudget 3.7.1 Test';let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='loans'?loansPage():view==='loan-detail'?loanDetail():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():view==='archives'?archivesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}catch(err){console.error('Erreur affichage',view,err);document.querySelector('#app').innerHTML=layout(`<section class="card"><h2>Impossible d’afficher cette page</h2><p>${esc(err?.message||String(err))}</p><button class="btn" data-go="more">Retour à Plus</button></section>`);bind()}}
+function render(){try{const headerYear=document.querySelector('.top h1 span');if(headerYear)headerYear.textContent=selectedYear;const badge=document.querySelector('.version-badge');if(badge)badge.textContent='KerBudget 3.7.2 Test';let html=view==='home'?home():view==='transactions'?transactions():view==='forecast'?cashForecast():view==='annual'?annual():view==='savings'?savings():view==='budget'?budget():view==='loans'?loansPage():view==='loan-detail'?loanDetail():view==='solar'?solar():view==='recurring'?recurring():view==='savings-recurring'?savingsRecurring():view==='report'?monthlyReport():view==='categories'?categoriesPage():view==='diagnostic'?diagnostic():view==='forecast-settings'?forecastSettingsPage():view==='versions'?versionJournal():view==='archives'?archivesPage():more();document.querySelector('#app').innerHTML=html;document.querySelectorAll('.bottom button').forEach(b=>b.classList.toggle('active',b.dataset.view===view));bind()}catch(err){console.error('Erreur affichage',view,err);document.querySelector('#app').innerHTML=layout(`<section class="card"><h2>Impossible d’afficher cette page</h2><p>${esc(err?.message||String(err))}</p><button class="btn" data-go="more">Retour à Plus</button></section>`);bind()}}
 function bind(){document.querySelectorAll('[data-year]').forEach(b=>b.onclick=()=>switchYear(b.dataset.year));document.querySelectorAll('[data-prepare-year]').forEach(b=>b.onclick=()=>{const y=+b.dataset.prepareYear;if(confirm(`Préparer ${y} maintenant ? Une sauvegarde sera créée avant le report.`)){prepareYear(y);render()}});document.querySelectorAll('[data-month]').forEach(b=>b.onclick=()=>{month=+b.dataset.month;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);render()});document.querySelectorAll('[data-go]').forEach(b=>b.onclick=()=>{view=b.dataset.go;render()});document.querySelectorAll('[data-loan-open]').forEach(b=>b.onclick=e=>{e.stopPropagation();activeLoanId=b.dataset.loanOpen;view='loan-detail';render()});document.querySelectorAll('[data-loan-add]').forEach(b=>b.onclick=()=>editLoan());document.querySelectorAll('[data-loan-edit]').forEach(b=>b.onclick=()=>editLoan(b.dataset.loanEdit));document.querySelectorAll('[data-loan-delete]').forEach(b=>b.onclick=()=>deleteLoan(b.dataset.loanDelete));document.querySelectorAll('[data-loan-installment-edit]').forEach(b=>b.onclick=()=>{const [l,i]=b.dataset.loanInstallmentEdit.split('|');editLoanInstallment(l,i)});document.querySelectorAll('[data-loan-point]').forEach(b=>b.onclick=()=>{const [l,i]=b.dataset.loanPoint.split('|');toggleLoanInstallment(l,i)});document.querySelectorAll('[data-open-savings]').forEach(b=>b.onclick=()=>{view='savings';render()});document.querySelectorAll('[data-monthgo]').forEach(b=>b.onclick=()=>{month=+b.dataset.monthgo;if(selectedYear===new Date().getFullYear())ensureRecurringForMonth(month);view='transactions';render()});document.querySelectorAll('[data-add]').forEach(b=>b.onclick=()=>editTx());document.querySelectorAll('[data-add-type]').forEach(b=>b.onclick=()=>editTx(null,b.dataset.addType));document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}});document.querySelectorAll('[data-tx-status]').forEach(b=>b.onclick=()=>{txStatusFilter=b.dataset.txStatus;render()});document.querySelectorAll('[data-tx-type]').forEach(b=>b.onclick=()=>{txTypeFilter=b.dataset.txType;render()});document.querySelectorAll('[data-forecast-type]').forEach(b=>b.onclick=()=>{forecastTypeFilter=b.dataset.forecastType;render()});document.querySelectorAll('[data-forecast-range]').forEach(b=>b.onclick=()=>{forecastRange=b.dataset.forecastRange;render()});document.querySelectorAll('[data-budget]').forEach(i=>i.onchange=()=>{state.months[month].budgetLines[+i.dataset.budget].planned=+i.value||0;save()});let q=document.querySelector('#search');if(q)q.oninput=()=>{txSearch=q.value;document.querySelector('#txarea').innerHTML=pointageListHtml();document.querySelectorAll('[data-edit]').forEach(r=>r.onclick=()=>editTx(r.dataset.edit));document.querySelectorAll('[data-toggle-point]').forEach(b=>b.onclick=e=>{e.stopPropagation();const t=findTransaction(b.dataset.togglePoint);if(t){t.pointed=!t.pointed;save('pointage');render()}})};let ex=document.querySelector('[data-export]');if(ex)ex.onclick=exportData;let im=document.querySelector('[data-import]');if(im)im.onclick=()=>document.querySelector('#fileInput').click();let fi=document.querySelector('#fileInput');if(fi)fi.onchange=importData;let bd=document.querySelector('[data-backup-download]');if(bd)bd.onclick=downloadBackup;let bi=document.querySelector('[data-backup-import]');if(bi)bi.onclick=()=>document.querySelector('#backupFileInput').click();let bf=document.querySelector('#backupFileInput');if(bf)bf.onchange=e=>{if(e.target.files[0])importBackupFile(e.target.files[0])};let br=document.querySelector('[data-backup-restore]');if(br)br.onclick=recoverLatestBackup;document.querySelectorAll('[data-recurring-edit]').forEach(x=>x.onclick=()=>editRecurring(x.dataset.recurringEdit,x.dataset.recurringKind||null));
 let ra=document.querySelector('[data-recurring-add]');if(ra)ra.onclick=()=>editRecurring(null,ra.dataset.recurringKind||'bill');
 let rg=document.querySelector('[data-recurring-generate]');if(rg)rg.onclick=()=>{ensureRecurringForMonth(month,true);render()};
