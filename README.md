@@ -1,4 +1,4 @@
-# KerBudget 3.7.3 Test
+# KerBudget 3.7.4 Test
 
 - Gestion multi-années et archives.
 - Préparation de la nouvelle année avec report du solde pointé au 31 décembre.
@@ -115,7 +115,13 @@ Version 3.4.1 : navigation Épargne explicite et refonte responsive de la Synth�
 - Même logique utilisée sur Budget, Aujourd’hui et les alertes.
 
 
-## Correctif 3.7.3
+## Correctif 3.7.4
 - Rétablissement des pages Aujourd’hui et À venir.
 - Optimisation du calcul des échéances de prêts dans les prévisions.
 - Protection d’affichage en cas d’erreur.
+
+
+## 3.7.4 Test
+- Correction du premier rendu au démarrage sur Android/Chrome.
+- L’accueil Aujourd’hui est forcé au chargement et au retour dans l’application si la zone centrale est vide.
+- Renouvellement du cache applicatif.
